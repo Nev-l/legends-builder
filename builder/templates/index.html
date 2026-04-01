@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>Car Builder v2 — 0k.au</title>
+<title>Car Builder v2.01 — 0k.au</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#111;color:#ddd;font:13px/1.5 system-ui,sans-serif;display:flex;flex-direction:column;height:100vh;overflow:hidden}
@@ -120,6 +120,7 @@ button:disabled{opacity:.35;cursor:default}
 <header>
   <h1>Car Builder</h1>
   <span style="font-size:11px;color:#444">0k.au</span>
+  <span style="font-size:10px;color:#333;margin-left:4px">v2.01</span>
 </header>
 
 <main>
@@ -466,26 +467,18 @@ function getPartInfo(name, posData, view) {
 }
 
 // ── Colour tinting ────────────────────────────────────────────────────────────
-// The game (CarConstruction.as) does:
-//   1. Each paintable SWF has a `paint` sub-clip containing white/grey shading artwork.
-//   2. Color.setRGB(targetClr) forces the clip to the flat target colour.
-//   3. getPaintFilter(targetClr) applies a ColorMatrixFilter on top:
-//        R_out = (Rc/255) * R_in
-//        G_out = (Gc/255) * R_in   ← ALL driven by the R channel of the paint clip
-//        B_out = (Bc/255) * R_in
-//   4. A `shad` duplicate (multiply blend) adds shadows; `hi` duplicate (screen blend)
-//      adds specular highlights using only the blue channel.
+// The game (CarConstruction.as / getPaintFilter) applies:
+//   R_out = (Rc/255) * R_in
+//   G_out = (Gc/255) * R_in   ← ALL driven by R_in
+//   B_out = (Bc/255) * R_in
 //
-// Since Ruffle composites all sub-layers when we capture, and Color.setRGB renders the
-// paint clip with unknown initial colour, we extract luminance (max of R/G/B) as the
-// paint intensity map and multiply by the target colour — this is equivalent to the
-// game's formula when the source artwork is greyscale, and robust to whatever initial
-// colour Ruffle used.
+// The paint sub-clip artwork in each SWF is PRE-BAKED RED (confirmed by bitmap
+// analysis: Mean R≈159-210, G≈42-96, B≈42-97). The shadow/noPaint layer is
+// greyscale (R≈G≈B≈65). Ruffle composites both into what we capture.
 //
-// The shadow and highlight sub-layers are non-paintable passes baked into the capture;
-// their pixels don't change with colour so they survive the luminance-based multiply
-// correctly (shadow pixels are dark → multiply keeps them dark; highlight pixels are
-// light → multiply scales them by the colour fraction, preserving the specular look).
+// Strategy: classify each pixel by how "red" it is.
+//   - Paint pixel  (R > G*1.4 and R > B*1.4): apply getPaintFilter using R as intensity
+//   - Shadow pixel (R ≈ G ≈ B):               leave completely unchanged
 
 function hexRgb(hex) {
   const n = parseInt(hex.replace("#",""), 16);
@@ -497,8 +490,6 @@ function partRgb(name) {
   return hexRgb(document.getElementById(id).value);
 }
 
-// Detect the dominant channel of a canvas (the one with the highest mean value).
-// Used once per part to figure out which channel Ruffle used for the paint layer.
 function tint(src, rgb) {
   const [r, g, b] = rgb;
   const out = document.createElement("canvas");
@@ -508,16 +499,17 @@ function tint(src, rgb) {
   const img = ctx.getImageData(0, 0, out.width, out.height);
   const d = img.data;
   const rf = r/255, gf = g/255, bf = b/255;
-  // The raw SWF part artwork is white/grey — the paint sub-clip is drawn as
-  // white shapes by the artist. CarConstruction.getPaintFilter drives all output
-  // channels from R_in only (first column of the matrix). For white pixels R=G=B
-  // so any channel works, but R is the canonical source matching the game exactly.
   for (let i = 0; i < d.length; i += 4) {
     if (d[i+3] === 0) continue;
-    const lum = d[i];   // R channel — matches getPaintFilter's R_in source
-    d[i]   = rf * lum + .5 | 0;
-    d[i+1] = gf * lum + .5 | 0;
-    d[i+2] = bf * lum + .5 | 0;
+    const pr = d[i], pg = d[i+1], pb = d[i+2];
+    // Paint pixel: R channel is significantly higher than G and B (pre-baked red artwork).
+    // Apply getPaintFilter: R_out=(Rc/255)*R_in, G_out=(Gc/255)*R_in, B_out=(Bc/255)*R_in
+    if (pr > pg * 1.4 && pr > pb * 1.4) {
+      d[i]   = rf * pr + .5 | 0;
+      d[i+1] = gf * pr + .5 | 0;
+      d[i+2] = bf * pr + .5 | 0;
+    }
+    // Shadow/grey pixel (R≈G≈B): leave unchanged — these are the noPaint/shadow layers
   }
   ctx.putImageData(img, 0, 0);
   return out;
@@ -1103,7 +1095,7 @@ function debugColours() {
   }
 
   // ── Pixel stats
-  let sr=0, sg=0, sb=0, n=0, nOpaque=0;
+  let sr=0, sg=0, sb=0, n=0, nOpaque=0, nPaint=0, nShadow=0;
   let maxR=0, maxG=0, maxB=0;
   for (let i = 0; i < rd.length; i += 4) {
     if (rd[i+3] > 10) {
@@ -1112,14 +1104,14 @@ function debugColours() {
       if (rd[i]   > maxR) maxR = rd[i];
       if (rd[i+1] > maxG) maxG = rd[i+1];
       if (rd[i+2] > maxB) maxB = rd[i+2];
+      if (rd[i] > rd[i+1] * 1.4 && rd[i] > rd[i+2] * 1.4) nPaint++;
+      else nShadow++;
     }
     n++;
   }
   const mr = nOpaque ? (sr/nOpaque).toFixed(1) : 0;
   const mg = nOpaque ? (sg/nOpaque).toFixed(1) : 0;
   const mb = nOpaque ? (sb/nOpaque).toFixed(1) : 0;
-  const ch = 0;  // R channel — matches getPaintFilter's R_in source
-  const chName = "RED";
   const targetHex = document.getElementById(PART_CLR[L.name] || "c_global").value;
 
   document.getElementById("dbgStats").textContent =
@@ -1127,12 +1119,13 @@ function debugColours() {
     `Opaque pixels: ${nOpaque} / ${n}\n` +
     `Mean RGB raw:  R=${mr}  G=${mg}  B=${mb}\n` +
     `Max  RGB raw:  R=${maxR}  G=${maxG}  B=${maxB}\n` +
-    `Dominant ch:   ${chName} (ch=${ch})\n` +
+    `Paint pixels:  ${nPaint} (R>G*1.4 and R>B*1.4 → will be tinted)\n` +
+    `Shadow pixels: ${nShadow} (grey → left unchanged)\n` +
     `Target colour: ${targetHex}  → RGB(${rgb.join(",")})\n` +
-    `\nExpected result: each pixel lum=${chName}[i], then\n` +
-    `  R_out = ${rgb[0]}/255 * lum\n` +
-    `  G_out = ${rgb[1]}/255 * lum\n` +
-    `  B_out = ${rgb[2]}/255 * lum`;
+    `\nTint formula (paint pixels only):\n` +
+    `  R_out = ${rgb[0]}/255 * R_in\n` +
+    `  G_out = ${rgb[1]}/255 * R_in\n` +
+    `  B_out = ${rgb[2]}/255 * R_in`;
 
   // ── 10 random non-transparent pixel samples
   const opaqueIdx = [];

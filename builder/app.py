@@ -256,27 +256,37 @@ def _extract_bitmaps(swf_path):
 
 @app.route(P + "/api/wheels/raw.zip")
 def wheels_raw_zip():
-    """Stream a zip of every wheelFF SWF's raw bitmaps as original JPEG + alpha PNG."""
+    """Extract raw bitmaps from ALL wheel SWFs (all prefixes, all IDs) and zip them.
+
+    Folder structure inside the zip:
+      wheelFF/wheelFF_1_bm1.jpg + _alpha.png  (front fast)
+      wheelBF/wheelBF_1_bm1.jpg + _alpha.png  (back fast)
+      wheelFR/...                               (front regular)
+      wheelBR/...                               (back regular)
+      wheelR/ ...                               (rear)
+    """
+    PREFIXES = ["wheelFF", "wheelBF", "wheelFR", "wheelBR", "wheelR"]
     wheel_dir = CAR_DIR / "wheel"
-    swfs = sorted(wheel_dir.glob("wheelFF_*.swf"),
-                  key=lambda p: int(p.stem.split('_')[1]))
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for swf in swfs:
-            stem = swf.stem  # e.g. wheelFF_1
-            for bm in _extract_bitmaps(swf):
-                bid = bm['id']
-                # Use id suffix only when multiple bitmaps in one SWF
-                suffix = f"_bm{bid}"
+        for prefix in PREFIXES:
+            swfs = sorted(wheel_dir.glob(f"{prefix}_*.swf"),
+                          key=lambda p: int(p.stem.split('_')[1]))
+            for swf in swfs:
+                stem = swf.stem  # e.g. wheelFF_1
+                for bm in _extract_bitmaps(swf):
+                    bid    = bm['id']
+                    suffix = f"_bm{bid}"
+                    folder = f"wheels/{prefix}"
 
-                if bm['type'] == 'jpeg3' and bm['jpg']:
-                    zf.writestr(f"wheels/{stem}{suffix}.jpg", bm['jpg'])
-                    if bm['alpha_png']:
-                        zf.writestr(f"wheels/{stem}{suffix}_alpha.png", bm['alpha_png'])
+                    if bm['type'] == 'jpeg3' and bm['jpg']:
+                        zf.writestr(f"{folder}/{stem}{suffix}.jpg", bm['jpg'])
+                        if bm['alpha_png']:
+                            zf.writestr(f"{folder}/{stem}{suffix}_alpha.png", bm['alpha_png'])
 
-                elif bm['type'] == 'lossless2' and bm['rgba_png']:
-                    zf.writestr(f"wheels/{stem}{suffix}.png", bm['rgba_png'])
+                    elif bm['type'] == 'lossless2' and bm['rgba_png']:
+                        zf.writestr(f"{folder}/{stem}{suffix}.png", bm['rgba_png'])
 
     buf.seek(0)
     return Response(

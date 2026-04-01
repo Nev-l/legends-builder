@@ -322,16 +322,24 @@ def wheels_svg_zip():
     PREFIXES = ["wheelFF", "wheelBF", "wheelFR", "wheelBR", "wheelR"]
     wheel_dir = CAR_DIR / "wheel"
 
+    # Collect all IDs across all prefixes
+    all_ids = sorted(set(
+        int(p.stem.split('_')[1])
+        for prefix in PREFIXES
+        for p in wheel_dir.glob(f"{prefix}_*.swf")
+    ))
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for prefix in PREFIXES:
-            swfs = sorted(wheel_dir.glob(f"{prefix}_*.swf"),
-                          key=lambda p: int(p.stem.split('_')[1]))
-            for swf in swfs:
+        for wid in all_ids:
+            for prefix in PREFIXES:
+                swf = wheel_dir / f"{prefix}_{wid}.swf"
+                if not swf.exists():
+                    continue
                 stem = swf.stem
                 for bm_suffix, svg in _bitmaps_to_svgs(swf):
                     fname = f"{stem}{bm_suffix}.svg"
-                    zf.writestr(f"wheels/{prefix}/{fname}", svg)
+                    zf.writestr(f"wheels/wheel_{wid}/{fname}", svg)
 
     buf.seek(0)
     return Response(
@@ -347,18 +355,25 @@ def wheels_raw_zip():
     PREFIXES = ["wheelFF", "wheelBF", "wheelFR", "wheelBR", "wheelR"]
     wheel_dir = CAR_DIR / "wheel"
 
+    all_ids = sorted(set(
+        int(p.stem.split('_')[1])
+        for prefix in PREFIXES
+        for p in wheel_dir.glob(f"{prefix}_*.swf")
+    ))
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for prefix in PREFIXES:
-            swfs = sorted(wheel_dir.glob(f"{prefix}_*.swf"),
-                          key=lambda p: int(p.stem.split('_')[1]))
-            for swf in swfs:
+        for wid in all_ids:
+            for prefix in PREFIXES:
+                swf = wheel_dir / f"{prefix}_{wid}.swf"
+                if not swf.exists():
+                    continue
                 stem = swf.stem
                 bitmaps = list(_extract_bitmaps(swf))
                 for bm in bitmaps:
                     bid    = bm['id']
                     suffix = f"_bm{bid}" if len(bitmaps) > 1 else ""
-                    folder = f"wheels/{prefix}"
+                    folder = f"wheels/wheel_{wid}"
 
                     if bm['type'] == 'jpeg3' and bm['jpg']:
                         zf.writestr(f"{folder}/{stem}{suffix}.jpg", bm['jpg'])

@@ -29,15 +29,22 @@ P = "/builder"
 
 # ── UI ──────────────────────────────────────────────────────────────────────
 
-@app.route(P)
-@app.route(P + "/")
-def index():
-    from flask import make_response
-    resp = make_response(render_template("index.html"))
+def _nocache(resp):
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     resp.headers["Pragma"] = "no-cache"
     resp.headers["Expires"] = "0"
     return resp
+
+@app.route(P)
+@app.route(P + "/")
+def index():
+    from flask import make_response
+    return _nocache(make_response(render_template("index.html")))
+
+@app.route(P + "/wheels")
+def wheels_export():
+    from flask import make_response
+    return _nocache(make_response(render_template("wheels_export.html")))
 
 
 # ── Static asset proxies (SWF files) ────────────────────────────────────────

@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wheel SVG Exporter — 0k.au</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#111;color:#ddd;font:13px/1.5 system-ui,sans-serif;padding:20px}
+h1{font-size:16px;font-weight:600;color:#fff;margin-bottom:4px}
+.sub{font-size:11px;color:#555;margin-bottom:16px}
+button{padding:8px 18px;border:none;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer;margin-right:8px}
+#startBtn{background:#2563eb;color:#fff}
+#startBtn:disabled{opacity:.4;cursor:default}
+#dlBtn{background:#166534;color:#fff;display:none}
+#log{margin-top:16px;font-size:11px;font-family:monospace;color:#888;max-height:300px;overflow-y:auto;background:#0d0d0d;border:1px solid #222;border-radius:4px;padding:8px}
+#log .ok{color:#4ade80}
+#log .err{color:#f87171}
+#log .info{color:#60a5fa}
+progress{display:block;width:100%;height:8px;margin-top:10px;border-radius:4px;overflow:hidden;border:none;background:#1a1a1a}
+progress::-webkit-progress-bar{background:#1a1a1a}
+progress::-webkit-progress-value{background:#2563eb}
+#thumbs{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+.thumb{background:#1a1a1a;border:1px solid #2a2a2a;border-radius:3px;padding:4px;text-align:center}
+.thumb canvas{display:block;image-rendering:pixelated}
+.thumb span{font-size:9px;color:#555;display:block;margin-top:2px}
+</style>
+</head>
+<body>
+<h1>Wheel SVG Exporter</h1>
+<p class="sub">Renders every wheelFF SWF via Ruffle and packages them as SVGs in a zip file.</p>
+
+<button id="startBtn">▶ Start Export</button>
+<button id="dlBtn">⬇ Download ZIP</button>
+
+<progress id="prog" value="0" max="1"></progress>
+<div id="log"></div>
+<div id="thumbs"></div>
+
+<!-- Off-screen Ruffle stage -->
+<div id="rfl" style="position:fixed;left:-9999px;top:0;overflow:hidden;pointer-events:none"></div>
+
+<!-- JSZip for in-browser zip creation -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://unpkg.com/@ruffle-rs/ruffle"></script>
+<script>
+const ruffle   = window.RufflePlayer.newest();
+const rflStage = document.getElementById("rfl");
+
+function log(msg, cls="") {
+  const el = document.getElementById("log");
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  line.textContent = msg;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+function waitFrames(n) {
+  return new Promise(resolve => {
+    const step = i => (i <= 0) ? resolve() : requestAnimationFrame(() => step(i-1));
+    step(n);
+  });
+}
+
+function makePlayer(w, h) {
+  rflStage.innerHTML = "";
+  const p = ruffle.createPlayer();
+  p.style.width  = w + "px";
+  p.style.height = h + "px";
+  rflStage.appendChild(p);
+  return p;
+}
+
+async function loadSwf(player, url) {
+  await player.load({ url, allowNetworking: "all", scale: "exactFit" });
+  await waitFrames(10);
+}
+
+function capture(player, w, h) {
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  const ctx = c.getContext("2d");
+  const inner = player.shadowRoot && player.shadowRoot.querySelector("canvas");
+  if (inner) ctx.drawImage(inner, 0, 0, w, h);
+  return c;
+}
+
+function isBlank(canvas) {
+  const d = canvas.getContext("2d").getImageData(0,0,canvas.width,canvas.height).data;
+  for (let i = 3; i < d.length; i += 4) if (d[i] > 10) return false;
+  return true;
+}
+
+function autoBg(canvas) {
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width, h = canvas.height;
+  const corners = [
+    ctx.getImageData(0,0,1,1).data,
+    ctx.getImageData(w-1,0,1,1).data,
+    ctx.getImageData(0,h-1,1,1).data,
+    ctx.getImageData(w-1,h-1,1,1).data,
+  ];
+  // Use most-common corner colour
+  for (const p of corners) if (p[3] > 200) return [p[0],p[1],p[2]];
+  return null;
+}
+
+function stripBg(canvas, bg) {
+  const [r,g,b] = bg; const T = 3;
+  const out = document.createElement("canvas");
+  out.width = canvas.width; out.height = canvas.height;
+  const ctx = out.getContext("2d");
+  ctx.drawImage(canvas, 0, 0);
+  const img = ctx.getImageData(0,0,out.width,out.height);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (Math.abs(d[i]-r)<=T && Math.abs(d[i+1]-g)<=T && Math.abs(d[i+2]-b)<=T) d[i+3]=0;
+  }
+  ctx.putImageData(img, 0, 0);
+  return out;
+}
+
+function canvasToSvg(canvas, name) {
+  const dataUrl = canvas.toDataURL("image/png");
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="${canvas.width}" height="${canvas.height}"
+     viewBox="0 0 ${canvas.width} ${canvas.height}">
+  <title>${name}</title>
+  <image x="0" y="0" width="${canvas.width}" height="${canvas.height}"
+         xlink:href="${dataUrl}"/>
+</svg>`;
+}
+
+function addThumb(canvas, name) {
+  const scale = Math.min(1, 80 / Math.max(canvas.width, canvas.height, 1));
+  const tw = Math.round(canvas.width * scale);
+  const th = Math.round(canvas.height * scale);
+  const thumb = document.createElement("canvas");
+  thumb.width = tw; thumb.height = th;
+  thumb.getContext("2d").drawImage(canvas, 0, 0, tw, th);
+  const wrap = document.createElement("div");
+  wrap.className = "thumb";
+  wrap.appendChild(thumb);
+  const lbl = document.createElement("span");
+  lbl.textContent = name;
+  wrap.appendChild(lbl);
+  document.getElementById("thumbs").appendChild(wrap);
+}
+
+async function runExport() {
+  const btn = document.getElementById("startBtn");
+  btn.disabled = true; btn.textContent = "⏳ Exporting…";
+
+  // Fetch list of available wheel IDs from the API
+  let wheelIds = [];
+  try {
+    const r = await fetch("/builder/api/wheels");
+    wheelIds = await r.json();
+  } catch(e) {
+    log("Failed to fetch wheel list: " + e.message, "err");
+    btn.disabled = false; btn.textContent = "▶ Start Export";
+    return;
+  }
+
+  log(`Found ${wheelIds.length} wheel designs`, "info");
+
+  const zip = new JSZip();
+  const folder = zip.folder("wheels_svg");
+  const prog = document.getElementById("prog");
+  prog.max = wheelIds.length;
+  prog.value = 0;
+
+  // We need position data — use wheelFF_1 as reference size fallback
+  // Fetch positions for a dummy car to get wheel dimensions
+  let posData = {};
+  try {
+    // Try car 1 front — we only need the wheel dimension entries
+    const r = await fetch("/builder/api/positions/1/f");
+    if (r.ok) posData = await r.json();
+  } catch(e) {}
+
+  let done = 0, errors = 0;
+
+  for (const wid of wheelIds) {
+    const name = `wheelFF_${wid}`;
+    const url  = `/builder/assets/car/wheel/${name}.swf`;
+
+    // Get dimensions for this wheel from posData, fallback to wheelFF_1
+    const key = `whl:${name}`;
+    const dim = posData[key] || posData["whl:wheelFF_1"] || { w: 150, h: 150 };
+    const w = dim.w || 150, h = dim.h || 150;
+
+    const player = makePlayer(w, h);
+    try {
+      await loadSwf(player, url);
+    } catch(e) {
+      log(`  ${name}: load error — ${e.message}`, "err");
+      errors++;
+      prog.value = ++done;
+      rflStage.innerHTML = "";
+      continue;
+    }
+
+    let canvas = null;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      canvas = capture(player, w, h);
+      if (!isBlank(canvas)) break;
+      await waitFrames(5);
+    }
+    rflStage.innerHTML = "";
+    await waitFrames(2);
+
+    if (!isBlank(canvas)) {
+      const bg = autoBg(canvas);
+      if (bg) canvas = stripBg(canvas, bg);
+    }
+
+    if (isBlank(canvas)) {
+      log(`  ${name}: blank — skipped`, "err");
+      errors++;
+    } else {
+      const svg = canvasToSvg(canvas, name);
+      folder.file(`${name}.svg`, svg);
+      addThumb(canvas, name);
+      log(`  ${name} ✓  (${w}×${h})`,"ok");
+    }
+
+    prog.value = ++done;
+  }
+
+  log(`\nRendered ${done - errors}/${wheelIds.length} wheels. Building zip…`, "info");
+
+  const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
+  const url  = URL.createObjectURL(blob);
+  const dlBtn = document.getElementById("dlBtn");
+  dlBtn.style.display = "inline-block";
+  dlBtn.onclick = () => {
+    const a = Object.assign(document.createElement("a"), { href: url, download: "wheels_svg.zip" });
+    document.body.appendChild(a); a.click(); setTimeout(() => a.remove(), 1000);
+  };
+
+  btn.disabled = false; btn.textContent = "▶ Start Export";
+  log(`Done — zip ready (${(blob.size/1024).toFixed(0)} KB)`, "info");
+}
+
+document.getElementById("startBtn").addEventListener("click", runExport);
+</script>
+</body>
+</html>

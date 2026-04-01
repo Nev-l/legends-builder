@@ -246,23 +246,31 @@ button:disabled{opacity:.35;cursor:default}
 
 // ── Layer order (from CarConstruction.as + game observation) ─────────────────
 
-// Layer orders match Drawing.as loadPartsArr / loadPartsBackArr exactly.
-// Wheels are drawn last (on top) by the game, but the body SWF masks them via
-// a BitmapData erase operation we can't replicate — so we keep wheels early
-// so the body composites over them.
+// Layer order from Drawing.as snapshotCar() — the exact draw order the game uses.
+// snapshotCar draws: shadow → underCarriage → tireR → tireF → wheelF → wheelR
+// → then carLoadin as a whole (all body parts via cacheAsBitmap in their loaded order).
+// Body parts loaded order from loadPartsArr:
+//   wheelMaskAddR, wheelMaskAddF, shadow, underCarriage, trunk, bodyOpp, body,
+//   bumperRear, skirt, bumper, grille, hood, lights, doorEffect, fenderEffect,
+//   cPillarEffect, sideEffect, hoodCenterEffect, hoodFrontEffect, eyelids,
+//   spoiler, top, roofEffect, tireF, tireR
 const FRONT_LAYERS = [
   "shadow","underCarriage",
-  "tireF","tireR","wheelF","wheelR",
-  "trunk","bodyOpp","body","bumperRear","skirt","bumper",
-  "grille","hood","lights",
+  "tireR","tireF","wheelF","wheelR",
+  "trunk","bodyOpp","body",
+  "bumperRear","skirt","bumper","grille","hood","lights",
   "doorEffect","fenderEffect","cPillarEffect","sideEffect",
   "hoodCenterEffect","hoodFrontEffect","eyelids",
   "spoiler","top","roofEffect",
 ];
 
+// Back view from loadPartsBackArr:
+//   wheelMaskAddF, wheelMaskAddR, shadow, underCarriage, tireBack, body, bodyOpp,
+//   top, trunk, roofEffect, spoiler, sideEffect, cPillarEffect, fenderEffect,
+//   doorEffect, bumperRear, tailLights, skirt, tireF, tireR
 const BACK_LAYERS = [
   "shadow","underCarriage",
-  "tireBack","tireF","tireR","wheelF","wheelR",
+  "tireBack","tireR","tireF","wheelF","wheelR",
   "body","bodyOpp","top","trunk","roofEffect","spoiler",
   "sideEffect","cPillarEffect","fenderEffect","doorEffect",
   "bumperRear","tailLights","skirt",
@@ -491,18 +499,6 @@ function partRgb(name) {
 
 // Detect the dominant channel of a canvas (the one with the highest mean value).
 // Used once per part to figure out which channel Ruffle used for the paint layer.
-function dominantChannel(canvas) {
-  const d = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
-  let sr = 0, sg = 0, sb = 0, n = 0;
-  for (let i = 0; i < d.length; i += 4) {
-    if (d[i+3] > 10) { sr += d[i]; sg += d[i+1]; sb += d[i+2]; n++; }
-  }
-  if (!n) return 2;  // default blue
-  if (sr >= sg && sr >= sb) return 0;  // red
-  if (sg >= sr && sg >= sb) return 1;  // green
-  return 2;                             // blue
-}
-
 function tint(src, rgb) {
   const [r, g, b] = rgb;
   const out = document.createElement("canvas");
@@ -512,16 +508,13 @@ function tint(src, rgb) {
   const img = ctx.getImageData(0, 0, out.width, out.height);
   const d = img.data;
   const rf = r/255, gf = g/255, bf = b/255;
-  // Detect which channel Ruffle used to represent the paint luminance.
-  // The game's initPart calls clr.setRGB(255) = 0x0000FF forcing the paint
-  // sub-clip blue, so normally ch=2 (blue).  We detect rather than hardcode
-  // to be robust against Ruffle version differences.
-  // Cache the result on the canvas element itself so we only scan once per part.
-  if (src._paintCh === undefined) src._paintCh = dominantChannel(src);
-  const ch = src._paintCh;
+  // The raw SWF part artwork is white/grey — the paint sub-clip is drawn as
+  // white shapes by the artist. CarConstruction.getPaintFilter drives all output
+  // channels from R_in only (first column of the matrix). For white pixels R=G=B
+  // so any channel works, but R is the canonical source matching the game exactly.
   for (let i = 0; i < d.length; i += 4) {
     if (d[i+3] === 0) continue;
-    const lum = d[i + ch];
+    const lum = d[i];   // R channel — matches getPaintFilter's R_in source
     d[i]   = rf * lum + .5 | 0;
     d[i+1] = gf * lum + .5 | 0;
     d[i+2] = bf * lum + .5 | 0;
@@ -1125,8 +1118,8 @@ function debugColours() {
   const mr = nOpaque ? (sr/nOpaque).toFixed(1) : 0;
   const mg = nOpaque ? (sg/nOpaque).toFixed(1) : 0;
   const mb = nOpaque ? (sb/nOpaque).toFixed(1) : 0;
-  const ch = raw._paintCh !== undefined ? raw._paintCh : dominantChannel(raw);
-  const chName = ["RED","GREEN","BLUE"][ch];
+  const ch = 0;  // R channel — matches getPaintFilter's R_in source
+  const chName = "RED";
   const targetHex = document.getElementById(PART_CLR[L.name] || "c_global").value;
 
   document.getElementById("dbgStats").textContent =

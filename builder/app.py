@@ -44,6 +44,7 @@ def index():
     return _nocache(make_response(render_template("index.html")))
 
 @app.route(P + "/wheels")
+@app.route(P + "/wheels/v2")
 def wheels_export():
     from flask import make_response
     return _nocache(make_response(render_template("wheels_export.html")))

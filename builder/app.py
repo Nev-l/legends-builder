@@ -254,16 +254,70 @@ def _extract_bitmaps(swf_path):
         off = te
 
 
-@app.route(P + "/api/wheels/raw.zip")
-def wheels_raw_zip():
-    """Extract raw bitmaps from ALL wheel SWFs (all prefixes, all IDs) and zip them.
+def _bitmaps_to_svgs(swf_path):
+    """Convert all bitmaps in a SWF to SVG strings.
 
-    Folder structure inside the zip:
-      wheelFF/wheelFF_1_bm1.jpg + _alpha.png  (front fast)
-      wheelBF/wheelBF_1_bm1.jpg + _alpha.png  (back fast)
-      wheelFR/...                               (front regular)
-      wheelBR/...                               (back regular)
-      wheelR/ ...                               (rear)
+    JPEG3: embeds JPEG as data URI with greyscale alpha mask.
+    Lossless2 (ARGB): converts to RGBA PNG, embeds as data URI.
+    Returns list of (filename_stem, svg_string).
+    """
+    import base64
+    results = []
+    bitmaps = list(_extract_bitmaps(swf_path))
+    for bm in bitmaps:
+        bid = bm['id']
+        w, h = bm['w'], bm['h']
+        if not w or not h:
+            continue
+        bm_suffix = f"_bm{bid}" if len(bitmaps) > 1 else ""
+
+        if bm['type'] == 'jpeg3' and bm['jpg']:
+            jpg_b64 = base64.b64encode(bm['jpg']).decode()
+            if bm['alpha_png']:
+                alpha_b64 = base64.b64encode(bm['alpha_png']).decode()
+                svg = (
+                    f'<svg xmlns="http://www.w3.org/2000/svg"'
+                    f' xmlns:xlink="http://www.w3.org/1999/xlink"'
+                    f' width="{w}" height="{h}" viewBox="0 0 {w} {h}">'
+                    f'<defs><mask id="a">'
+                    f'<image width="{w}" height="{h}"'
+                    f' xlink:href="data:image/png;base64,{alpha_b64}"/>'
+                    f'</mask></defs>'
+                    f'<image width="{w}" height="{h}"'
+                    f' xlink:href="data:image/jpeg;base64,{jpg_b64}"'
+                    f' mask="url(#a)"/></svg>'
+                )
+            else:
+                svg = (
+                    f'<svg xmlns="http://www.w3.org/2000/svg"'
+                    f' xmlns:xlink="http://www.w3.org/1999/xlink"'
+                    f' width="{w}" height="{h}" viewBox="0 0 {w} {h}">'
+                    f'<image width="{w}" height="{h}"'
+                    f' xlink:href="data:image/jpeg;base64,{jpg_b64}"/></svg>'
+                )
+            results.append((bm_suffix, svg))
+
+        elif bm['type'] == 'lossless2' and bm['rgba_png']:
+            b64 = base64.b64encode(bm['rgba_png']).decode()
+            svg = (
+                f'<svg xmlns="http://www.w3.org/2000/svg"'
+                f' xmlns:xlink="http://www.w3.org/1999/xlink"'
+                f' width="{w}" height="{h}" viewBox="0 0 {w} {h}">'
+                f'<image width="{w}" height="{h}"'
+                f' xlink:href="data:image/png;base64,{b64}"/></svg>'
+            )
+            results.append((bm_suffix, svg))
+
+    return results
+
+
+@app.route(P + "/api/wheels/svg.zip")
+def wheels_svg_zip():
+    """Convert every wheel SWF bitmap to SVG and zip them server-side.
+
+    No browser/Ruffle needed — pure Python stdlib.
+    Structure: wheels/wheelFF/wheelFF_1.svg, wheels/wheelBF/wheelBF_1.svg, …
+    Multi-bitmap SWFs get one SVG per bitmap: wheelFF_50_bm1.svg, _bm2.svg, etc.
     """
     PREFIXES = ["wheelFF", "wheelBF", "wheelFR", "wheelBR", "wheelR"]
     wheel_dir = CAR_DIR / "wheel"
@@ -274,10 +328,36 @@ def wheels_raw_zip():
             swfs = sorted(wheel_dir.glob(f"{prefix}_*.swf"),
                           key=lambda p: int(p.stem.split('_')[1]))
             for swf in swfs:
-                stem = swf.stem  # e.g. wheelFF_1
-                for bm in _extract_bitmaps(swf):
+                stem = swf.stem
+                for bm_suffix, svg in _bitmaps_to_svgs(swf):
+                    fname = f"{stem}{bm_suffix}.svg"
+                    zf.writestr(f"wheels/{prefix}/{fname}", svg)
+
+    buf.seek(0)
+    return Response(
+        buf.read(),
+        mimetype='application/zip',
+        headers={'Content-Disposition': 'attachment; filename="wheels_svg.zip"'}
+    )
+
+
+@app.route(P + "/api/wheels/raw.zip")
+def wheels_raw_zip():
+    """Zip original JPEG + alpha PNG bitmaps extracted from every wheel SWF."""
+    PREFIXES = ["wheelFF", "wheelBF", "wheelFR", "wheelBR", "wheelR"]
+    wheel_dir = CAR_DIR / "wheel"
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for prefix in PREFIXES:
+            swfs = sorted(wheel_dir.glob(f"{prefix}_*.swf"),
+                          key=lambda p: int(p.stem.split('_')[1]))
+            for swf in swfs:
+                stem = swf.stem
+                bitmaps = list(_extract_bitmaps(swf))
+                for bm in bitmaps:
                     bid    = bm['id']
-                    suffix = f"_bm{bid}"
+                    suffix = f"_bm{bid}" if len(bitmaps) > 1 else ""
                     folder = f"wheels/{prefix}"
 
                     if bm['type'] == 'jpeg3' and bm['jpg']:

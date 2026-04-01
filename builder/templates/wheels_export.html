@@ -6,245 +6,62 @@
 <title>Wheel Exporter — 0k.au</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#111;color:#ddd;font:13px/1.5 system-ui,sans-serif;padding:20px}
-h1{font-size:16px;font-weight:600;color:#fff;margin-bottom:4px}
-.sub{font-size:11px;color:#555;margin-bottom:14px}
-.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
-button{padding:7px 16px;border:none;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer}
-button:disabled{opacity:.4;cursor:default}
-#startBtn{background:#2563eb;color:#fff}
-#dlBtn{background:#166534;color:#fff;display:none}
+body{background:#111;color:#ddd;font:13px/1.5 system-ui,sans-serif;padding:24px;max-width:600px}
+h1{font-size:16px;font-weight:600;color:#fff;margin-bottom:6px}
+p{font-size:12px;color:#555;margin-bottom:20px;line-height:1.6}
+.card{background:#161616;border:1px solid #2a2a2a;border-radius:6px;padding:16px;margin-bottom:14px}
+.card h2{font-size:12px;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.card p{margin-bottom:12px;color:#666}
+button{padding:8px 18px;border:none;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer}
+#svgBtn{background:#2563eb;color:#fff}
+#svgBtn:hover{background:#1d4ed8}
 #rawBtn{background:#7c3aed;color:#fff}
-.prefix-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-.prefix-row label{font-size:11px;color:#888;display:flex;align-items:center;gap:4px;cursor:pointer}
-.prefix-row input{cursor:pointer}
-progress{display:block;width:100%;height:7px;margin:10px 0 4px;border-radius:4px;overflow:hidden;border:none;background:#1a1a1a}
-progress::-webkit-progress-bar{background:#1a1a1a}
-progress::-webkit-progress-value{background:#2563eb}
-#status{font-size:11px;color:#555;min-height:16px;margin-bottom:6px}
-#log{font-size:11px;font-family:monospace;color:#666;max-height:260px;overflow-y:auto;background:#0d0d0d;border:1px solid #1e1e1e;border-radius:4px;padding:8px}
-#log .ok{color:#4ade80}
-#log .err{color:#f87171}
-#log .info{color:#60a5fa}
-#log .head{color:#a78bfa;font-weight:600}
-#thumbs{display:flex;flex-wrap:wrap;gap:5px;margin-top:12px}
-.thumb{background:#1a1a1a;border:1px solid #2a2a2a;border-radius:3px;padding:3px;text-align:center}
-.thumb canvas{display:block;image-rendering:pixelated}
-.thumb span{font-size:9px;color:#444;display:block;margin-top:2px}
+#rawBtn:hover{background:#6d28d9}
+.note{font-size:11px;color:#444;margin-top:10px;line-height:1.5}
 </style>
 </head>
 <body>
 <h1>Wheel Exporter</h1>
-<p class="sub">Export wheel artwork from every SWF — all views, all designs.</p>
+<p>Downloads all wheel artwork extracted directly from the SWF files — no browser rendering required. Covers all 5 views (FF, BF, FR, BR, R) × 154 designs = 770 SWFs.</p>
 
-<div class="controls">
-  <button id="startBtn">▶ Export SVGs (Ruffle)</button>
-  <button id="dlBtn">⬇ Download SVG ZIP</button>
+<div class="card">
+  <h2>SVG ZIP — recommended</h2>
+  <p>Each wheel bitmap converted to SVG with the original JPEG embedded and alpha mask applied. Ready to open in Inkscape, Illustrator, or a browser.</p>
+  <button id="svgBtn">⬇ Download SVG ZIP</button>
+  <div class="note">
+    Multi-layer wheels (designs 50+) produce one SVG per bitmap layer.<br>
+    Structure: <code>wheels/wheelFF/wheelFF_1.svg</code>, <code>wheels/wheelBF/…</code> etc.
+  </div>
+</div>
+
+<div class="card">
+  <h2>Raw Bitmaps ZIP</h2>
+  <p>Original JPEG files + separate greyscale alpha PNG masks, exactly as stored in the SWF. Useful if you want to do your own compositing.</p>
   <button id="rawBtn">⬇ Download Raw Bitmaps ZIP</button>
+  <div class="note">
+    JPEG3 bitmaps → <code>.jpg</code> + <code>_alpha.png</code><br>
+    Lossless2 bitmaps → <code>.png</code> (RGBA, already merged)
+  </div>
 </div>
 
-<div class="prefix-row">
-  <span style="font-size:11px;color:#555;margin-right:4px">Views:</span>
-  <label><input type="checkbox" class="pfx" value="wheelFF" checked> FF (front fast)</label>
-  <label><input type="checkbox" class="pfx" value="wheelBF" checked> BF (back fast)</label>
-  <label><input type="checkbox" class="pfx" value="wheelFR" checked> FR (front regular)</label>
-  <label><input type="checkbox" class="pfx" value="wheelBR" checked> BR (back regular)</label>
-  <label><input type="checkbox" class="pfx" value="wheelR"  checked> R  (rear)</label>
-</div>
-
-<progress id="prog" value="0" max="1"></progress>
-<div id="status"></div>
-<div id="log"></div>
-<div id="thumbs"></div>
-
-<div id="rfl" style="position:fixed;left:-9999px;top:0;overflow:hidden;pointer-events:none"></div>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="https://unpkg.com/@ruffle-rs/ruffle"></script>
 <script>
-const ruffle   = window.RufflePlayer.newest();
-const rflStage = document.getElementById("rfl");
+document.getElementById("svgBtn").addEventListener("click", () => {
+  const btn = document.getElementById("svgBtn");
+  btn.disabled = true; btn.textContent = "⏳ Building zip…";
+  // Use a hidden iframe so the button re-enables after the download starts
+  const a = document.createElement("a");
+  a.href = "/builder/api/wheels/svg.zip";
+  a.download = "wheels_svg.zip";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => { btn.disabled=false; btn.textContent="⬇ Download SVG ZIP"; }, 3000);
+});
 
-function setStatus(msg) { document.getElementById("status").textContent = msg; }
-
-function log(msg, cls="") {
-  const el = document.getElementById("log");
-  const line = document.createElement("div");
-  if (cls) line.className = cls;
-  line.textContent = msg;
-  el.appendChild(line);
-  el.scrollTop = el.scrollHeight;
-}
-
-function waitFrames(n) {
-  return new Promise(r => { const s = i => i<=0 ? r() : requestAnimationFrame(()=>s(i-1)); s(n); });
-}
-
-function waitMs(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-function makePlayer(w, h) {
-  rflStage.innerHTML = "";
-  const p = ruffle.createPlayer();
-  p.style.width = w + "px"; p.style.height = h + "px";
-  rflStage.appendChild(p);
-  return p;
-}
-
-async function loadSwf(player, url) {
-  await player.load({ url, allowNetworking: "all", scale: "exactFit" });
-  await waitFrames(18);  // extra frames — some wheels are slow to initialise
-}
-
-function capture(player, w, h) {
-  const c = document.createElement("canvas");
-  c.width = w; c.height = h;
-  const inner = player.shadowRoot && player.shadowRoot.querySelector("canvas");
-  if (inner) c.getContext("2d").drawImage(inner, 0, 0, w, h);
-  return c;
-}
-
-function isBlank(canvas) {
-  const d = canvas.getContext("2d").getImageData(0,0,canvas.width,canvas.height).data;
-  for (let i = 3; i < d.length; i += 4) if (d[i] > 10) return false;
-  return true;
-}
-
-function autoBg(canvas) {
-  const w = canvas.width, h = canvas.height, ctx = canvas.getContext("2d");
-  for (const [x,y] of [[0,0],[w-1,0],[0,h-1],[w-1,h-1]]) {
-    const p = ctx.getImageData(x,y,1,1).data;
-    if (p[3] > 200) return [p[0],p[1],p[2]];
-  }
-  return null;
-}
-
-function stripBg(canvas, bg) {
-  const [r,g,b] = bg, T=4;
-  const out = document.createElement("canvas");
-  out.width = canvas.width; out.height = canvas.height;
-  const ctx = out.getContext("2d");
-  ctx.drawImage(canvas, 0, 0);
-  const img = ctx.getImageData(0,0,out.width,out.height);
-  const d = img.data;
-  for (let i = 0; i < d.length; i += 4)
-    if (Math.abs(d[i]-r)<=T && Math.abs(d[i+1]-g)<=T && Math.abs(d[i+2]-b)<=T) d[i+3]=0;
-  ctx.putImageData(img, 0, 0);
-  return out;
-}
-
-function canvasToSvg(canvas, name) {
-  const dataUrl = canvas.toDataURL("image/png");
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${canvas.width}" height="${canvas.height}" viewBox="0 0 ${canvas.width} ${canvas.height}">\n  <title>${name}</title>\n  <image x="0" y="0" width="${canvas.width}" height="${canvas.height}" xlink:href="${dataUrl}"/>\n</svg>`;
-}
-
-function addThumb(canvas, name) {
-  const s = Math.min(1, 70/Math.max(canvas.width,canvas.height,1));
-  const tw = Math.round(canvas.width*s), th = Math.round(canvas.height*s);
-  const t = document.createElement("canvas");
-  t.width=tw; t.height=th;
-  t.getContext("2d").drawImage(canvas,0,0,tw,th);
-  const wrap = document.createElement("div"); wrap.className="thumb";
-  wrap.appendChild(t);
-  const lbl = document.createElement("span"); lbl.textContent=name;
-  wrap.appendChild(lbl);
-  document.getElementById("thumbs").appendChild(wrap);
-}
-
-function selectedPrefixes() {
-  return [...document.querySelectorAll(".pfx:checked")].map(el => el.value);
-}
-
-async function runExport() {
-  const btn = document.getElementById("startBtn");
-  btn.disabled = true; btn.textContent = "⏳ Exporting…";
-  document.getElementById("thumbs").innerHTML = "";
-  document.getElementById("log").innerHTML = "";
-
-  const prefixes = selectedPrefixes();
-  if (!prefixes.length) { log("Select at least one view.", "err"); btn.disabled=false; btn.textContent="▶ Export SVGs (Ruffle)"; return; }
-
-  // Fetch wheel IDs
-  let wheelIds = [];
-  try {
-    wheelIds = await fetch("/builder/api/wheels").then(r=>r.json());
-  } catch(e) { log("Failed to fetch wheel list: "+e.message,"err"); btn.disabled=false; btn.textContent="▶ Export SVGs (Ruffle)"; return; }
-
-  // Fetch position data for dimension lookup
-  let posData = {};
-  try { const r=await fetch("/builder/api/positions/1/f"); if(r.ok) posData=await r.json(); } catch(e){}
-
-  const zip = new JSZip();
-  const prog = document.getElementById("prog");
-  const total = prefixes.length * wheelIds.length;
-  prog.max = total; prog.value = 0;
-
-  let done=0, ok=0, skipped=0;
-
-  for (const prefix of prefixes) {
-    log(`── ${prefix} (${wheelIds.length} designs) ──`, "head");
-    const folder = zip.folder(prefix);
-
-    for (const wid of wheelIds) {
-      const name = `${prefix}_${wid}`;
-      const url  = `/builder/assets/car/wheel/${name}.swf`;
-      const key  = `whl:${name}`;
-      // Fall back through FF equivalents for dimension lookup
-      const dim  = posData[key] || posData[`whl:wheelFF_${wid}`] || posData["whl:wheelFF_1"] || {w:150,h:150};
-      const w = dim.w||150, h = dim.h||150;
-
-      setStatus(`${prefix} — design ${wid}/${wheelIds[wheelIds.length-1]}  (${ok} ok, ${skipped} skipped)`);
-
-      const player = makePlayer(w, h);
-      try { await loadSwf(player, url); }
-      catch(e) { log(`  ${name}: load error`, "err"); skipped++; prog.value=++done; rflStage.innerHTML=""; continue; }
-
-      // Up to 8 retry attempts with increasing wait to handle slow SWFs
-      let canvas = null;
-      for (let attempt=0; attempt<8; attempt++) {
-        canvas = capture(player, w, h);
-        if (!isBlank(canvas)) break;
-        await waitFrames(attempt < 4 ? 8 : 15);
-      }
-      rflStage.innerHTML = "";
-      await waitFrames(3);
-
-      if (!isBlank(canvas)) {
-        const bg = autoBg(canvas);
-        if (bg) canvas = stripBg(canvas, bg);
-      }
-
-      if (isBlank(canvas)) {
-        log(`  ${name}: blank — skipped`, "err");
-        skipped++;
-      } else {
-        folder.file(`${name}.svg`, canvasToSvg(canvas, name));
-        // Only show thumbs for FF to avoid flooding the page
-        if (prefix === "wheelFF") addThumb(canvas, name);
-        log(`  ${name} ✓  ${w}×${h}`, "ok");
-        ok++;
-      }
-
-      prog.value = ++done;
-    }
-  }
-
-  log(`\nFinished: ${ok} exported, ${skipped} skipped out of ${total} total.`, "info");
-  setStatus(`Done — ${ok} SVGs ready`);
-
-  const blob = await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:6}});
-  const dlBtn = document.getElementById("dlBtn");
-  dlBtn.style.display = "inline-block";
-  dlBtn.onclick = () => {
-    const a = Object.assign(document.createElement("a"),{href:URL.createObjectURL(blob),download:"wheels_svg.zip"});
-    document.body.appendChild(a); a.click(); setTimeout(()=>a.remove(),1000);
-  };
-
-  btn.disabled=false; btn.textContent="▶ Export SVGs (Ruffle)";
-  log(`Zip ready — ${(blob.size/1024).toFixed(0)} KB`, "info");
-}
-
-document.getElementById("startBtn").addEventListener("click", runExport);
-document.getElementById("rawBtn").addEventListener("click", () => { location.href="/builder/api/wheels/raw.zip"; });
+document.getElementById("rawBtn").addEventListener("click", () => {
+  const a = document.createElement("a");
+  a.href = "/builder/api/wheels/raw.zip";
+  a.download = "wheels_raw.zip";
+  document.body.appendChild(a); a.click(); a.remove();
+});
 </script>
 </body>
 </html>

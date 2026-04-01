@@ -141,6 +141,90 @@ def list_saved():
 
 # ── Bitmap extraction helpers ─────────────────────────────────────────────────
 
+def _composite_thumbnail(swf_path, max_size=120):
+    """Composite all bitmaps in a SWF into a single RGBA PNG (bytes).
+
+    Uses Pillow (available on the Pi via system packages).
+    Returns None if Pillow is unavailable or the SWF has no bitmaps.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+
+    try:
+        raw = open(swf_path, 'rb').read()
+    except OSError:
+        return None
+    if raw[:3] == b'CWS':
+        try:
+            raw = raw[:8] + zlib.decompress(raw[8:])
+        except Exception:
+            return None
+
+    _,_,_,_,rb = _read_rect(raw, 8)
+    off = 8 + rb + 4
+    end = len(raw)
+    composite = None
+
+    while off + 2 <= end:
+        hdr = struct.unpack_from('<H', raw, off)[0]; off += 2
+        tt  = hdr >> 6
+        tl  = hdr & 0x3F
+        if tl == 63:
+            if off + 4 > end: break
+            tl = struct.unpack_from('<I', raw, off)[0]; off += 4
+        te = off + tl
+        if te > end: break
+
+        if tt == 35:  # DefineBitsJPEG3
+            dlen = struct.unpack_from('<I', raw, off + 2)[0]
+            jpg  = raw[off + 6 : off + 6 + dlen]
+            if jpg[:4] == b'\xff\xd9\xff\xd8':
+                jpg = jpg[4:]
+            alpha_comp = raw[off + 6 + dlen : te]
+            try:
+                img = Image.open(io.BytesIO(jpg)).convert('RGBA')
+                if alpha_comp:
+                    alpha_raw = zlib.decompress(alpha_comp)
+                    w, h = img.size
+                    img.putalpha(Image.frombytes('L', (w, h), alpha_raw[:w * h]))
+                composite = img if composite is None else Image.alpha_composite(composite, img)
+            except Exception:
+                pass
+
+        elif tt == 36:  # DefineBitsLossless2 fmt=5 (32-bit ARGB)
+            fmt = raw[off + 2]
+            w   = struct.unpack_from('<H', raw, off + 3)[0]
+            h   = struct.unpack_from('<H', raw, off + 5)[0]
+            if fmt == 5:
+                try:
+                    argb = zlib.decompress(raw[off + 7 : te])[:w * h * 4]
+                    rgba = bytearray(w * h * 4)
+                    for i in range(w * h):
+                        a, r, g, b = argb[i*4], argb[i*4+1], argb[i*4+2], argb[i*4+3]
+                        rgba[i*4 : i*4+4] = bytes([r, g, b, a])
+                    img = Image.frombytes('RGBA', (w, h), bytes(rgba))
+                    composite = img if composite is None else Image.alpha_composite(composite, img)
+                except Exception:
+                    pass
+
+        off = te
+
+    if composite is None:
+        return None
+
+    # Scale down to thumbnail size
+    w, h = composite.size
+    scale = min(1.0, max_size / max(w, h, 1))
+    if scale < 1.0:
+        composite = composite.resize(
+            (int(w * scale), int(h * scale)), Image.LANCZOS)
+
+    buf = io.BytesIO()
+    composite.save(buf, 'PNG', optimize=True)
+    return buf.getvalue()
+
 def _png_chunk(tag, data):
     c = struct.pack('>I', len(data)) + tag + data
     return c + struct.pack('>I', zlib.crc32(tag + data) & 0xffffffff)
@@ -332,6 +416,15 @@ def wheels_svg_zip():
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         for wid in all_ids:
+            folder = f"wheels/wheel_{wid}"
+
+            # Preview thumbnail — composite from the FF (front) view
+            thumb_swf = wheel_dir / f"wheelFF_{wid}.swf"
+            if thumb_swf.exists():
+                thumb = _composite_thumbnail(thumb_swf)
+                if thumb:
+                    zf.writestr(f"{folder}/preview.png", thumb)
+
             for prefix in PREFIXES:
                 swf = wheel_dir / f"{prefix}_{wid}.swf"
                 if not swf.exists():
@@ -339,7 +432,7 @@ def wheels_svg_zip():
                 stem = swf.stem
                 for bm_suffix, svg in _bitmaps_to_svgs(swf):
                     fname = f"{stem}{bm_suffix}.svg"
-                    zf.writestr(f"wheels/wheel_{wid}/{fname}", svg)
+                    zf.writestr(f"{folder}/{fname}", svg)
 
     buf.seek(0)
     return Response(

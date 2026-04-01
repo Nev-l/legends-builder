@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>Car Builder v2.01 — 0k.au</title>
+<title>Car Builder v2.02 — 0k.au</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#111;color:#ddd;font:13px/1.5 system-ui,sans-serif;display:flex;flex-direction:column;height:100vh;overflow:hidden}
@@ -120,7 +120,7 @@ button:disabled{opacity:.35;cursor:default}
 <header>
   <h1>Car Builder</h1>
   <span style="font-size:11px;color:#444">0k.au</span>
-  <span style="font-size:10px;color:#333;margin-left:4px">v2.01</span>
+  <span style="font-size:10px;color:#333;margin-left:4px">v2.02</span>
 </header>
 
 <main>
@@ -166,7 +166,7 @@ button:disabled{opacity:.35;cursor:default}
       <div class="clr-item"><span>Spoiler</span>      <input type="color" id="c_spoiler" value="#cc3300"></div>
       <div class="clr-item"><span>Top / Roof</span>   <input type="color" id="c_top"     value="#cc3300"></div>
       <div class="clr-item"><span>Trunk</span>        <input type="color" id="c_trunk"   value="#cc3300"></div>
-      <div class="clr-item"><span>Wheels</span>       <input type="color" id="c_wheel"   value="#222222"></div>
+      <div class="clr-item"><span>Wheels <span id="whlClrReset" style="color:#444;font-size:9px;cursor:pointer;text-decoration:underline" title="Reset to default">↺</span></span><input type="color" id="c_wheel" value="#aaaaaa"></div>
     </div>
   </div>
 
@@ -999,6 +999,10 @@ async function init() {
   document.getElementById("tirSel").innerHTML =
     tires.map(id => `<option value="${id}">${id}</option>`).join("");
 
+  // Load saved wheel colour default for the initially-selected wheel design
+  const initWhlId = document.getElementById("whlSel").value;
+  if (initWhlId) document.getElementById("c_wheel").value = getWheelDefault(initWhlId);
+
   // Trigger initial previews after dropdowns are populated
   updateCarPreview();
   updateWheelPreview();
@@ -1185,6 +1189,44 @@ document.getElementById("c_global").addEventListener("input", function() {
     const el = document.getElementById(id);
     if (!el._custom) el.value = this.value;
   });
+  if (cache.length) composite();
+});
+
+// ── Wheel colour defaults ─────────────────────────────────────────────────────
+// The game stores wheel colours per car save (XML), not per wheel design.
+// We keep a user-editable default per wheel design in localStorage so the
+// colour picker auto-fills sensibly when you switch designs.
+// Fallback default is silver (#aaaaaa) for all designs.
+const WHEEL_CLR_DEFAULT = "#aaaaaa";
+
+function whlClrKey(id) { return `whl_clr_${id}`; }
+
+function getWheelDefault(id) {
+  return localStorage.getItem(whlClrKey(id)) || WHEEL_CLR_DEFAULT;
+}
+
+function saveWheelDefault(id, hex) {
+  localStorage.setItem(whlClrKey(id), hex);
+}
+
+// When wheel design changes: load saved default colour for that design
+document.getElementById("whlSel").addEventListener("change", function() {
+  const id = this.value;
+  const clr = getWheelDefault(id);
+  document.getElementById("c_wheel").value = clr;
+  if (cache.length) composite();
+});
+
+// When user changes wheel colour: save it as the default for current design
+document.getElementById("c_wheel").addEventListener("input", function() {
+  saveWheelDefault(document.getElementById("whlSel").value, this.value);
+});
+
+// Reset button: clear saved default, revert to silver
+document.getElementById("whlClrReset").addEventListener("click", function() {
+  const id = document.getElementById("whlSel").value;
+  localStorage.removeItem(whlClrKey(id));
+  document.getElementById("c_wheel").value = WHEEL_CLR_DEFAULT;
   if (cache.length) composite();
 });
 

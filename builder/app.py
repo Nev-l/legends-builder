@@ -439,7 +439,7 @@ def wheels_svg_zip():
     return Response(
         buf.read(),
         mimetype='application/zip',
-        headers={'Content-Disposition': 'attachment; filename="wheels_svg.zip"'}
+        headers={'Content-Disposition': 'attachment; filename="wheels_svg_v2.zip"'}
     )
 
 

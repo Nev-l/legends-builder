@@ -1,1 +1,0 @@
-txt = _parent.splashText;

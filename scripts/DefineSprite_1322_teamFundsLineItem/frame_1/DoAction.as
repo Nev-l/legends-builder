@@ -1,5 +1,0 @@
-stop();
-if(!deposit)
-{
-   nextFrame();
-}

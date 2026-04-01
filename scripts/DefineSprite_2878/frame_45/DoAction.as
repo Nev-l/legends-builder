@@ -1,1 +1,0 @@
-carPicker._visible = false;

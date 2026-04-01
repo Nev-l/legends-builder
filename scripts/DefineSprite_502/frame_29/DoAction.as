@@ -1,2 +1,0 @@
-gotoAndStop("back");
-play();

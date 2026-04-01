@@ -1,1 +1,0 @@
-showShiftLight(false);

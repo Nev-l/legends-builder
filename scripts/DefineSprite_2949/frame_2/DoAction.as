@@ -1,9 +1,0 @@
-container.removeMovieClip();
-rankingBoardGroup.removeMovieClip();
-loadinBG.removeMovieClip();
-setupDetailLeft();
-if(qualFlag)
-{
-   gotoAndStop("prelims");
-   play();
-}

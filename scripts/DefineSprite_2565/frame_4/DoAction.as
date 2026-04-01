@@ -1,1 +1,0 @@
-scDial.ticks.txt = "";

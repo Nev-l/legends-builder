@@ -1,1 +1,0 @@
-whiteHilite.enabled = false;

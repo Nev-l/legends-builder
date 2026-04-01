@@ -1,16 +1,20 @@
-# Exclude the 1.6GB raw SWF asset dump — too large for GitHub.
-# Share via USB/Drive/rsync instead.
-decom/
+# ── Decom: only keep car/ and parts/ ──────────────────────────────────────────
+# Exclude everything in decom by default, then re-include car/ and parts/
+decom/*
+!decom/car/
+!decom/parts/
 
-# Python runtime
+# ── Python runtime ─────────────────────────────────────────────────────────────
 builder/venv/
-builder/__pycache__/
 **/__pycache__/
 *.pyc
 
-# Builder runtime output
+# ── Builder runtime output ──────────────────────────────────────────────────────
 builder/saved/
 
-# OS
+# ── Decompiled scripts (not needed by collaborators) ───────────────────────────
+scripts/
+
+# ── OS ─────────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db

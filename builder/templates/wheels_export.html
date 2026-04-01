@@ -30,7 +30,7 @@ button{padding:8px 18px;border:none;border-radius:4px;font-size:13px;font-weight
   <button id="svgBtn">⬇ Download SVG ZIP</button>
   <div class="note">
     Multi-layer wheels (designs 50+) produce one SVG per bitmap layer.<br>
-    Structure: <code>wheels/wheelFF/wheelFF_1.svg</code>, <code>wheels/wheelBF/…</code> etc.
+    Structure: <code>wheels/wheel_1/preview.png</code>, <code>wheelFF_1.svg</code>, <code>wheelBF_1.svg</code>… one folder per design.
   </div>
 </div>
 
@@ -51,7 +51,7 @@ document.getElementById("svgBtn").addEventListener("click", () => {
   // Use a hidden iframe so the button re-enables after the download starts
   const a = document.createElement("a");
   a.href = "/builder/api/wheels/svg.zip";
-  a.download = "wheels_svg.zip";
+  a.download = "wheels_svg_v2.zip";
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => { btn.disabled=false; btn.textContent="⬇ Download SVG ZIP"; }, 3000);
 });

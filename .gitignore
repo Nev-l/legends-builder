@@ -1,0 +1,16 @@
+# Exclude the 1.6GB raw SWF asset dump — too large for GitHub.
+# Share via USB/Drive/rsync instead.
+decom/
+
+# Python runtime
+builder/venv/
+builder/__pycache__/
+**/__pycache__/
+*.pyc
+
+# Builder runtime output
+builder/saved/
+
+# OS
+.DS_Store
+Thumbs.db

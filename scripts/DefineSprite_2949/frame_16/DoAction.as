@@ -1,0 +1,2 @@
+displayTimes();
+showMyRank();

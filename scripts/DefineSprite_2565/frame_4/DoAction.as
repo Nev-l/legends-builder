@@ -1,0 +1,1 @@
+scDial.ticks.txt = "";

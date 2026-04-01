@@ -1,0 +1,9 @@
+stop();
+if(type.length)
+{
+   gotoAndStop(type);
+}
+else
+{
+   gotoAndStop("default");
+}

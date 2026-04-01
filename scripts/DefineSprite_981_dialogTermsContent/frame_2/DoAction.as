@@ -1,0 +1,10 @@
+stop();
+var tfw = 377;
+var tfh = 278;
+this.createTextField("tf",this.getNextHighestDepth(),23,92,tfw,tfh);
+tf.html = true;
+tf.wordWrap = true;
+tf.multiline = true;
+tf.styleSheet = _global.n2CSS;
+tf.htmlText = agreement;
+var scroller = new controls.ScrollBar(tf,289,null,81);

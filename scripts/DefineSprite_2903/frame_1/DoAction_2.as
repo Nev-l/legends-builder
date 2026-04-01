@@ -1,0 +1,13 @@
+stop();
+classes.Control.ctourneyMC = this;
+var aryCompTourney;
+var playerRank;
+var tourneyType;
+var roundsArr;
+var opponentPrestaged;
+var rankingBoardMC;
+var myRacerNum;
+var tourneyID;
+var currentMatch;
+initRoom();
+_root.ctGetRacers();

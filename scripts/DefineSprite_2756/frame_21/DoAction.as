@@ -1,0 +1,3 @@
+cover.onRelease = function()
+{
+};

@@ -1,0 +1,21 @@
+# /etc/systemd/system/builder.service
+
+[Unit]
+Description=0k.au Car Builder
+After=network.target
+
+[Service]
+User=q
+WorkingDirectory=/home/q/legends/builder
+Environment=LEGENDS_CAR_DIR=/home/q/legends/car
+Environment=LEGENDS_PARTS_DIR=/home/q/legends/parts
+ExecStart=/home/q/legends/builder/venv/bin/gunicorn \
+    --workers 2 \
+    --bind 127.0.0.1:5001 \
+    --timeout 120 \
+    app:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,5 @@
+stop();
+if(!deposit)
+{
+   nextFrame();
+}

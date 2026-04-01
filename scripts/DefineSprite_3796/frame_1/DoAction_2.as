@@ -1,0 +1,14 @@
+stop();
+var shopName = "Parts";
+var locationID = _parent.locationID;
+var shoppingFor = "Car";
+var selAcid;
+var selAeid;
+var partOwnAndUninstalledXML = new XML();
+partOwnAndUninstalledXML.ignoreWhite = true;
+var enginePartXML = new XML();
+enginePartXML.ignoreWhite = true;
+var isBack;
+var storeType = _parent.storeType;
+_global.shopPartsMC = this;
+_root.getPartCategories();

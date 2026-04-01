@@ -1,0 +1,1 @@
+carPicker._visible = false;

@@ -1,0 +1,2 @@
+stop();
+this.hitArea = mcHitArea;

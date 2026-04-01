@@ -1,0 +1,1 @@
+viewingDetail = false;

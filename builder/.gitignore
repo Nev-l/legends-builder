@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.env
+
+# Saved SVG exports (runtime output, not source)
+saved/
+
+# OS
+.DS_Store
+Thumbs.db

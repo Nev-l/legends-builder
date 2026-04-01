@@ -1,0 +1,1208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Car Builder v2 — 0k.au</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#111;color:#ddd;font:13px/1.5 system-ui,sans-serif;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+header{background:#1a1a1a;border-bottom:1px solid #333;padding:8px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0}
+header h1{font-size:15px;font-weight:600;color:#fff}
+main{display:flex;flex:1;overflow:hidden}
+
+/* ── Sidebar ── */
+#sidebar{width:220px;flex-shrink:0;background:#161616;border-right:1px solid #2a2a2a;overflow-y:auto;padding:10px}
+.grp{margin-bottom:11px}
+.grp label{display:block;font-size:10px;color:#555;margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em}
+.grp select{width:100%;background:#222;border:1px solid #333;color:#ddd;padding:4px 7px;border-radius:3px;font-size:13px}
+.grp select:focus{outline:1px solid #555}
+
+.clr-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.clr-item{display:flex;flex-direction:column;gap:2px}
+.clr-item span{font-size:10px;color:#555}
+.clr-item input[type=color]{width:100%;height:26px;padding:1px 2px;border:1px solid #333;border-radius:3px;background:#222;cursor:pointer}
+
+hr.div{border:none;border-top:1px solid #252525;margin:10px 0}
+
+button{width:100%;padding:6px 4px;border:none;border-radius:3px;font-size:12px;cursor:pointer;font-weight:600;margin-bottom:5px}
+button:disabled{opacity:.35;cursor:default}
+#buildBtn{background:#2563eb;color:#fff}
+#buildBtn:not(:disabled):hover{background:#1d4ed8}
+#retintBtn{background:#374151;color:#ccc}
+#retintBtn:not(:disabled):hover{background:#4b5563}
+.dl-row{display:flex;gap:5px}
+.dl-row button{font-size:11px}
+#dlPngBtn{background:#166534;color:#fff}
+#dlPngBtn:not(:disabled):hover{background:#15803d}
+#dlSvgBtn{background:#1e3a5f;color:#fff}
+#dlSvgBtn:not(:disabled):hover{background:#1e40af}
+#saveServerBtn{background:#2d1f4e;color:#ccc;font-size:11px}
+#saveServerBtn:not(:disabled):hover{background:#3b2065}
+
+.prog{font-size:11px;color:#666;min-height:16px;margin:3px 0}
+.prog.ok{color:#4ade80}
+.prog.err{color:#f87171}
+.prog.warn{color:#fbbf24}
+
+/* ── Previews ── */
+.preview-box{margin-top:5px;background:#0d0d0d;border:1px solid #222;border-radius:3px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.preview-box canvas{display:block}
+.parts-info{font-size:10px;color:#555;margin-top:4px;line-height:1.6}
+.parts-info .ok{color:#4ade80}
+.parts-info .miss{color:#f87171}
+
+#savedList{margin-top:6px}
+#savedList a{display:block;font-size:11px;color:#60a5fa;text-decoration:none;margin-bottom:2px;word-break:break-all}
+#savedList a:hover{text-decoration:underline}
+#savedList .lbl{font-size:10px;color:#444;margin:5px 0 2px}
+
+/* ── Canvas ── */
+#canvas-area{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0d0d0d;overflow:auto;padding:20px}
+#mainCanvas{border:1px solid #2a2a2a;background:#1a1a1a;display:block}
+.canvas-info{font-size:10px;color:#333;margin-top:6px}
+
+/* ── Layers panel ── */
+#layers-panel{width:180px;flex-shrink:0;background:#161616;border-left:1px solid #2a2a2a;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:0}
+#layers-panel h2{font-size:10px;color:#444;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
+.li{font-size:11px;padding:2px 5px;border-radius:3px;margin-bottom:2px;background:#1e1e1e;color:#555;display:flex;align-items:center;gap:0;user-select:none}
+.li.loaded{color:#aaa}
+.li.loaded .li-name{cursor:pointer}
+.li.loaded .li-name:hover{color:#fff}
+.li.loaded:hover{background:#222}
+.li.selected{background:#1d3557!important;outline:1px solid #2563eb}
+.li.selected .li-name{color:#93c5fd!important}
+.li.off .li-name{opacity:.45}
+.li.loading{color:#f59e0b}
+.li-name{flex:1;padding:1px 0}
+.dot{width:18px;height:18px;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;border-radius:2px}
+.dot:hover{background:#2a2a2a}
+.dot::after{content:"";display:block;width:6px;height:6px;border-radius:50%;background:#2a2a2a}
+.li.loaded .dot::after{background:#4ade80}
+.li.loaded.off .dot::after{background:#555}
+.li.loading .dot::after{background:#f59e0b}
+
+/* ── Position controls ── */
+#posControls{padding:8px 0 4px;border-top:1px solid #252525;margin-top:4px;display:none;flex-direction:column;gap:4px}
+#posControls.visible{display:flex}
+#posControls .pc-title{font-size:10px;color:#60a5fa;font-weight:600;margin-bottom:2px}
+#posControls .pc-section{font-size:9px;color:#444;text-transform:uppercase;letter-spacing:.05em;margin:4px 0 1px}
+.pc-row{display:flex;align-items:center;gap:4px}
+.pc-row label{font-size:10px;color:#555;width:26px;flex-shrink:0;white-space:nowrap}
+.pc-row input[type=number]{flex:1;min-width:0;background:#1a1a1a;border:1px solid #333;color:#ddd;padding:2px 4px;border-radius:2px;font-size:11px}
+.pc-row input[type=number]:focus{outline:1px solid #555}
+#resetPosBtn{background:#374151;color:#ccc;font-size:10px;padding:3px 6px;border:none;border-radius:3px;cursor:pointer;width:auto;margin:0}
+#resetPosBtn:hover{background:#4b5563}
+
+/* ── Off-screen Ruffle stage ── */
+#rfl{position:fixed;left:-9999px;top:0;overflow:hidden;pointer-events:none}
+
+/* ── Colour debug panel ── */
+#dbgPanel{display:none;position:fixed;bottom:0;left:0;right:0;height:220px;background:#0d0d0d;border-top:2px solid #2563eb;z-index:999;overflow-x:auto;overflow-y:hidden;padding:8px 12px;gap:14px;font-size:10px;color:#aaa;flex-direction:row;align-items:flex-start}
+#dbgPanel.open{display:flex}
+#dbgPanel h3{font-size:11px;color:#60a5fa;margin-bottom:4px;white-space:nowrap}
+.dbg-block{flex-shrink:0;display:flex;flex-direction:column;gap:4px}
+.dbg-canvases{display:flex;gap:6px}
+.dbg-canvases canvas{border:1px solid #333;image-rendering:pixelated}
+.dbg-label{font-size:9px;color:#555;text-align:center}
+.dbg-stats{font-size:10px;line-height:1.8;white-space:pre;font-family:monospace;color:#ccc}
+.dbg-samples{display:grid;grid-template-columns:repeat(10,18px);gap:2px;margin-top:4px}
+.dbg-swatch{width:18px;height:18px;border:1px solid #333;border-radius:2px;position:relative;cursor:default}
+.dbg-close{position:absolute;top:6px;right:10px;background:none;border:none;color:#555;font-size:16px;cursor:pointer;padding:0;width:auto;margin:0;font-weight:bold;line-height:1}
+.dbg-close:hover{color:#fff}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Car Builder</h1>
+  <span style="font-size:11px;color:#444">0k.au</span>
+</header>
+
+<main>
+<!-- Sidebar -->
+<div id="sidebar">
+  <div class="grp">
+    <label>Car</label>
+    <select id="carSel"><option>Loading…</option></select>
+    <div class="preview-box" style="height:62px">
+      <canvas id="carPreview" width="198" height="60"></canvas>
+    </div>
+    <div class="parts-info" id="partsInfo"></div>
+  </div>
+  <div class="grp">
+    <label>View</label>
+    <select id="viewSel">
+      <option value="f">Front</option>
+      <option value="b">Back</option>
+    </select>
+  </div>
+  <div class="grp">
+    <label>Wheel design</label>
+    <select id="whlSel"><option value="1">1</option></select>
+    <div class="preview-box" style="height:52px">
+      <canvas id="whlPreview" width="50" height="50"></canvas>
+    </div>
+  </div>
+  <div class="grp">
+    <label>Tire design (1–7)</label>
+    <select id="tirSel"><option value="1">1</option></select>
+    <div class="preview-box" style="height:52px">
+      <canvas id="tirPreview" width="50" height="50"></canvas>
+    </div>
+  </div>
+
+  <div class="grp">
+    <label>Colours <span style="color:#333;font-size:9px">(change global → updates all)</span></label>
+    <div class="clr-grid">
+      <div class="clr-item"><span>Body (global)</span><input type="color" id="c_global"  value="#cc3300"></div>
+      <div class="clr-item"><span>Hood</span>         <input type="color" id="c_hood"    value="#cc3300"></div>
+      <div class="clr-item"><span>Bumper</span>       <input type="color" id="c_bumper"  value="#cc3300"></div>
+      <div class="clr-item"><span>Skirt</span>        <input type="color" id="c_skirt"   value="#cc3300"></div>
+      <div class="clr-item"><span>Spoiler</span>      <input type="color" id="c_spoiler" value="#cc3300"></div>
+      <div class="clr-item"><span>Top / Roof</span>   <input type="color" id="c_top"     value="#cc3300"></div>
+      <div class="clr-item"><span>Trunk</span>        <input type="color" id="c_trunk"   value="#cc3300"></div>
+      <div class="clr-item"><span>Wheels</span>       <input type="color" id="c_wheel"   value="#222222"></div>
+    </div>
+  </div>
+
+  <button id="buildBtn">▶ Build Car</button>
+  <button id="retintBtn" disabled>↺ Re-tint (no rebuild)</button>
+  <button id="dbgBtn" style="background:#14532d;color:#86efac;border:1px solid #16a34a">Debug colours</button>
+
+  <div class="prog" id="prog"></div>
+  <hr class="div">
+
+  <div class="dl-row">
+    <button id="dlPngBtn" disabled>⬇ PNG</button>
+    <button id="dlSvgBtn" disabled>⬇ SVG</button>
+  </div>
+  <button id="saveServerBtn" disabled>☁ Save SVG to server</button>
+
+  <div id="savedList"></div>
+</div>
+
+<!-- Canvas -->
+<div id="canvas-area">
+  <canvas id="mainCanvas" width="640" height="400" tabindex="0" style="cursor:crosshair"></canvas>
+  <div class="canvas-info">640 × 400 px — click layer to select · dot to toggle · drag canvas to move · arrow keys to nudge</div>
+</div>
+
+<!-- Layers panel -->
+<div id="layers-panel">
+  <h2>Layers ↑ top</h2>
+  <div id="layerList"></div>
+  <div id="posControls">
+    <div class="pc-title" id="pcTitle">— no selection —</div>
+    <div class="pc-section">Position</div>
+    <div class="pc-row"><label>X</label><input type="number" id="pcX" step="1"></div>
+    <div class="pc-row"><label>Y</label><input type="number" id="pcY" step="1"></div>
+    <div class="pc-section">Scale</div>
+    <div class="pc-row"><label>Sc X</label><input type="number" id="pcScX" step="any" oninput="onPcFloat('scx',this.value)" onchange="onPcFloat('scx',this.value)"></div>
+    <div class="pc-row"><label>Sc Y</label><input type="number" id="pcScY" step="any" oninput="onPcFloat('scy',this.value)" onchange="onPcFloat('scy',this.value)"></div>
+    <div class="pc-section">Skew (px/px)</div>
+    <div class="pc-row"><label>Sk X</label><input type="number" id="pcSkX" step="any" oninput="onPcFloat('skx',this.value)" onchange="onPcFloat('skx',this.value)"></div>
+    <div class="pc-row"><label>Sk Y</label><input type="number" id="pcSkY" step="any" oninput="onPcFloat('sky',this.value)" onchange="onPcFloat('sky',this.value)"></div>
+    <button id="resetPosBtn">↺ Reset all</button>
+  </div>
+</div>
+</main>
+
+<!-- Colour debug panel -->
+<div id="dbgPanel">
+  <button class="dbg-close" onclick="document.getElementById('dbgPanel').classList.remove('open')">✕</button>
+  <div class="dbg-block">
+    <h3 id="dbgTitle">Colour Debug</h3>
+    <div class="dbg-canvases">
+      <div><canvas id="dbgRaw" width="160" height="100"></canvas><div class="dbg-label">Raw (Ruffle output)</div></div>
+      <div><canvas id="dbgTinted" width="160" height="100"></canvas><div class="dbg-label">Tinted result</div></div>
+      <div><canvas id="dbgChannels" width="160" height="100"></canvas><div class="dbg-label">R / G / B channels</div></div>
+    </div>
+  </div>
+  <div class="dbg-block">
+    <h3>Pixel stats (non-transparent)</h3>
+    <div class="dbg-stats" id="dbgStats">—</div>
+  </div>
+  <div class="dbg-block">
+    <h3>10 random pixel samples (raw)</h3>
+    <div class="dbg-samples" id="dbgSamples"></div>
+  </div>
+  <div class="dbg-block">
+    <h3>10 random pixel samples (tinted)</h3>
+    <div class="dbg-samples" id="dbgSamplesT"></div>
+  </div>
+</div>
+
+<!-- Off-screen Ruffle containers -->
+<div id="rfl"></div>
+<div id="rflPrev" style="position:fixed;left:-9999px;top:0;overflow:hidden;pointer-events:none"></div>
+
+<script src="https://unpkg.com/@ruffle-rs/ruffle"></script>
+<script>
+"use strict";
+
+// ── Layer order (from CarConstruction.as + game observation) ─────────────────
+
+// Layer orders match Drawing.as loadPartsArr / loadPartsBackArr exactly.
+// Wheels are drawn last (on top) by the game, but the body SWF masks them via
+// a BitmapData erase operation we can't replicate — so we keep wheels early
+// so the body composites over them.
+const FRONT_LAYERS = [
+  "shadow","underCarriage",
+  "tireF","tireR","wheelF","wheelR",
+  "trunk","bodyOpp","body","bumperRear","skirt","bumper",
+  "grille","hood","lights",
+  "doorEffect","fenderEffect","cPillarEffect","sideEffect",
+  "hoodCenterEffect","hoodFrontEffect","eyelids",
+  "spoiler","top","roofEffect",
+];
+
+const BACK_LAYERS = [
+  "shadow","underCarriage",
+  "tireBack","tireF","tireR","wheelF","wheelR",
+  "body","bodyOpp","top","trunk","roofEffect","spoiler",
+  "sideEffect","cPillarEffect","fenderEffect","doorEffect",
+  "bumperRear","tailLights","skirt",
+];
+
+// Parts that receive paint colour — matches partsArr in CarConstruction.as exactly
+const PAINTABLE = new Set([
+  "roofEffect","spoiler","eyelids","hoodFrontEffect","hoodCenterEffect",
+  "sideEffect","cPillarEffect","fenderEffect","doorEffect","grille","top",
+  "body","bodyOpp","trunk","bumper","bumperRear","skirt","hood","wheelF","wheelR"
+]);
+
+// Per-part colour picker ID (falls back to global if not listed)
+const PART_CLR = {
+  hood:       "c_hood",
+  bumper:     "c_bumper",
+  bumperRear: "c_bumper",
+  skirt:      "c_skirt",
+  spoiler:    "c_spoiler",
+  top:        "c_top",
+  roofEffect: "c_top",
+  trunk:      "c_trunk",
+  wheelF:     "c_wheel",
+  wheelR:     "c_wheel",
+};
+
+// ── Ruffle helpers ────────────────────────────────────────────────────────────
+
+const ruffle   = window.RufflePlayer.newest();
+const rflStage = document.getElementById("rfl");
+
+// Wait exactly n animation frames before resolving.
+function waitFrames(n) {
+  return new Promise(resolve => {
+    const step = i => (i <= 0) ? resolve() : requestAnimationFrame(() => step(i - 1));
+    step(n);
+  });
+}
+
+function makePlayer(w, h) {
+  const p = ruffle.createPlayer();
+  p.style.cssText = `width:${w}px;height:${h}px;display:block`;
+  rflStage.appendChild(p);
+  return p;
+}
+
+function loadSwf(player, url) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      // Wait 10 frames — gives Ruffle time to complete its first full render
+      waitFrames(10).then(() => resolve(player));
+    };
+    const timer = setTimeout(() => {
+      console.warn("[builder] timeout:", url.split("/").pop());
+      if (!done) { done = true; resolve(player); }
+    }, 9000);
+    player.addEventListener("loadeddata", finish, { once: true });
+    player.addEventListener("playing",    finish, { once: true });
+    player.load({
+      url,
+      allowNetworking: "same-origin",
+      scale: "exactfit"
+    }).catch(() => { clearTimeout(timer); if (!done) { done = true; resolve(player); } });
+  });
+}
+
+function capture(player, w, h) {
+  const inner = player.shadowRoot
+    ? player.shadowRoot.querySelector("canvas")
+    : player.querySelector("canvas");
+  if (!inner) return null;
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  c.getContext("2d").drawImage(inner, 0, 0, w, h);
+  return c;
+}
+
+function isBlank(canvas) {
+  if (!canvas) return true;
+  const d = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+  for (let i = 3; i < d.length; i += 4) if (d[i] > 4) return false;
+  return true;
+}
+
+// Detect the SWF SetBgColor by sampling corners and edges.
+// Returns [r,g,b] if all sampled points agree, or null if background is already
+// transparent or the image has artwork at the edges.
+function autoBg(canvas) {
+  const w = canvas.width, h = canvas.height;
+  if (w < 4 || h < 4) return null;
+  const ctx = canvas.getContext("2d");
+  const pts = [
+    [0,0],[1,0],[0,1],[2,0],[0,2],
+    [w-1,0],[w-2,0],[w-1,1],
+    [0,h-1],[0,h-2],[1,h-1],
+    [w-1,h-1],[w-2,h-1],[w-1,h-2]
+  ];
+  let r0=-1,g0=-1,b0=-1;
+  for (const [x,y] of pts) {
+    const p = ctx.getImageData(x,y,1,1).data;
+    if (p[3] < 250) return null;   // already has transparency
+    if (r0 < 0) { r0=p[0]; g0=p[1]; b0=p[2]; }
+    else if (Math.abs(p[0]-r0)>3||Math.abs(p[1]-g0)>3||Math.abs(p[2]-b0)>3) return null;
+  }
+  return r0 < 0 ? null : [r0,g0,b0];
+}
+
+// Remove pixels that match the background colour (±3 tolerance per channel).
+// Small tolerance handles minor rendering variations in Ruffle's output.
+function stripBg(canvas, bg) {
+  const [r,g,b] = bg;
+  const out = document.createElement("canvas");
+  out.width = canvas.width; out.height = canvas.height;
+  const ctx = out.getContext("2d");
+  ctx.drawImage(canvas, 0, 0);
+  const img = ctx.getImageData(0, 0, out.width, out.height);
+  const d = img.data;
+  const T = 3;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i+3] > 10 &&
+        Math.abs(d[i]   - r) <= T &&
+        Math.abs(d[i+1] - g) <= T &&
+        Math.abs(d[i+2] - b) <= T) {
+      d[i+3] = 0;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return out;
+}
+
+// ── URL resolution ────────────────────────────────────────────────────────────
+
+function partUrl(name, carId, view) {
+  const base = "/builder/assets/car";
+  const wv   = view === "f" ? "F" : "B";
+  const wid  = document.getElementById("whlSel").value;
+  const tid  = Math.min(7, parseInt(document.getElementById("tirSel").value, 10));
+
+  if (name === "wheelF")   return `${base}/wheel/wheel${wv}F_${wid}.swf`;
+  if (name === "wheelR")   return `${base}/wheel/wheel${wv}R_${wid}.swf`;
+  if (name === "tireF")    return `${base}/wheel/tire${wv}F_${tid}.swf`;
+  if (name === "tireR")    return `${base}/wheel/tire${wv}R_${tid}.swf`;
+  if (name === "tireBack") return `${base}/wheel/tireBack.swf`;
+  return `${base}/packages/${carId}${view}/${name}.swf`;
+}
+
+// ── Position lookup ───────────────────────────────────────────────────────────
+// posData is fetched once per build from /api/positions/<id>/<view>.
+// Keys: "partName" for car-package SWFs, "whl:stemName" for wheel/ SWFs.
+
+function getPartInfo(name, posData, view) {
+  const wid = document.getElementById("whlSel").value;
+  const tid = document.getElementById("tirSel").value;
+  const vv  = view === "f" ? "F" : "B";
+
+  let txSrc  = posData[name]  || {};   // where to get tx/ty (car pkg stub)
+  let dimSrc = posData[name]  || {};   // where to get w/h/xoff/yoff (actual visual SWF)
+
+  if (name === "tireF") {
+    dimSrc = posData[`whl:tire${vv}F_${tid}`] || posData["whl:tireFF_1"] || {};
+  } else if (name === "tireR") {
+    dimSrc = posData[`whl:tire${vv}R_${tid}`] || posData["whl:tireFF_1"] || {};
+  } else if (name === "wheelF") {
+    txSrc  = posData["tireF"]  || {};   // wheel sits at tireF position
+    dimSrc = posData[`whl:wheel${vv}F_${wid}`] || posData["whl:wheelFF_1"] || {};
+  } else if (name === "wheelR") {
+    txSrc  = posData["tireR"]  || {};
+    dimSrc = posData[`whl:wheel${vv}R_${wid}`] || posData["whl:wheelFF_1"] || {};
+  } else if (name === "tireBack") {
+    dimSrc = posData["whl:tireBack"] || {};
+  }
+
+  // tx/ty from car-package stub SWF = where the part's (0,0) goes on the 640x400 stage.
+  // xoff/yoff from actual SWF RECT = if RECT doesn't start at 0, Ruffle shifts content.
+  // Draw position = (tx + xoff, ty + yoff) so artwork lines up correctly.
+  const tx   = txSrc.tx   != null ? txSrc.tx   : 0;
+  const ty   = txSrc.ty   != null ? txSrc.ty   : 0;
+  const xoff = dimSrc.xoff != null ? dimSrc.xoff : 0;
+  const yoff = dimSrc.yoff != null ? dimSrc.yoff : 0;
+
+  const info = {
+    tx:   tx + xoff,
+    ty:   ty + yoff,
+    w:    dimSrc.w  || 640,
+    h:    dimSrc.h  || 400,
+    bg:   dimSrc.bg || null,   // SetBgColor from the actual rendered SWF
+  };
+  return info;
+}
+
+// ── Colour tinting ────────────────────────────────────────────────────────────
+// The game (CarConstruction.as) does:
+//   1. Each paintable SWF has a `paint` sub-clip containing white/grey shading artwork.
+//   2. Color.setRGB(targetClr) forces the clip to the flat target colour.
+//   3. getPaintFilter(targetClr) applies a ColorMatrixFilter on top:
+//        R_out = (Rc/255) * R_in
+//        G_out = (Gc/255) * R_in   ← ALL driven by the R channel of the paint clip
+//        B_out = (Bc/255) * R_in
+//   4. A `shad` duplicate (multiply blend) adds shadows; `hi` duplicate (screen blend)
+//      adds specular highlights using only the blue channel.
+//
+// Since Ruffle composites all sub-layers when we capture, and Color.setRGB renders the
+// paint clip with unknown initial colour, we extract luminance (max of R/G/B) as the
+// paint intensity map and multiply by the target colour — this is equivalent to the
+// game's formula when the source artwork is greyscale, and robust to whatever initial
+// colour Ruffle used.
+//
+// The shadow and highlight sub-layers are non-paintable passes baked into the capture;
+// their pixels don't change with colour so they survive the luminance-based multiply
+// correctly (shadow pixels are dark → multiply keeps them dark; highlight pixels are
+// light → multiply scales them by the colour fraction, preserving the specular look).
+
+function hexRgb(hex) {
+  const n = parseInt(hex.replace("#",""), 16);
+  return [(n >> 16) & 0xFF, (n >> 8) & 0xFF, n & 0xFF];
+}
+
+function partRgb(name) {
+  const id = PART_CLR[name] || "c_global";
+  return hexRgb(document.getElementById(id).value);
+}
+
+// Detect the dominant channel of a canvas (the one with the highest mean value).
+// Used once per part to figure out which channel Ruffle used for the paint layer.
+function dominantChannel(canvas) {
+  const d = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+  let sr = 0, sg = 0, sb = 0, n = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i+3] > 10) { sr += d[i]; sg += d[i+1]; sb += d[i+2]; n++; }
+  }
+  if (!n) return 2;  // default blue
+  if (sr >= sg && sr >= sb) return 0;  // red
+  if (sg >= sr && sg >= sb) return 1;  // green
+  return 2;                             // blue
+}
+
+function tint(src, rgb) {
+  const [r, g, b] = rgb;
+  const out = document.createElement("canvas");
+  out.width = src.width; out.height = src.height;
+  const ctx = out.getContext("2d");
+  ctx.drawImage(src, 0, 0);
+  const img = ctx.getImageData(0, 0, out.width, out.height);
+  const d = img.data;
+  const rf = r/255, gf = g/255, bf = b/255;
+  // Detect which channel Ruffle used to represent the paint luminance.
+  // The game's initPart calls clr.setRGB(255) = 0x0000FF forcing the paint
+  // sub-clip blue, so normally ch=2 (blue).  We detect rather than hardcode
+  // to be robust against Ruffle version differences.
+  // Cache the result on the canvas element itself so we only scan once per part.
+  if (src._paintCh === undefined) src._paintCh = dominantChannel(src);
+  const ch = src._paintCh;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i+3] === 0) continue;
+    const lum = d[i + ch];
+    d[i]   = rf * lum + .5 | 0;
+    d[i+1] = gf * lum + .5 | 0;
+    d[i+2] = bf * lum + .5 | 0;
+  }
+  ctx.putImageData(img, 0, 0);
+  return out;
+}
+
+// ── Layer cache & compositing ─────────────────────────────────────────────────
+// cache entries: {name, raw, visible, tx, ty, ox, oy, w, h}
+// ox/oy = original position for reset
+
+let cache = [];
+let selectedCi = -1;   // index into cache of selected layer (-1 = none)
+
+function composite() {
+  const mc  = document.getElementById("mainCanvas");
+  const ctx = mc.getContext("2d");
+  ctx.clearRect(0, 0, 640, 400);
+  for (let i = 0; i < cache.length; i++) {
+    const L = cache[i];
+    if (!L.visible) continue;
+    const src = PAINTABLE.has(L.name) ? tint(L.raw, partRgb(L.name)) : L.raw;
+    // Build transform: translate to anchor (tx,ty), apply scale+skew, draw at origin
+    // Canvas setTransform(scx, sky, skx, scy, tx, ty) maps to the CSS/SVG matrix:
+    //   [ scx  skx  tx ]
+    //   [ sky  scy  ty ]
+    const scx = L.scx ?? 1, scy = L.scy ?? 1;
+    const skx = L.skx ?? 0, sky = L.sky ?? 0;
+    ctx.save();
+    ctx.transform(scx, sky, skx, scy, L.tx, L.ty);
+    ctx.drawImage(src, 0, 0);
+    ctx.restore();
+  }
+  // Draw selection outline (un-transformed bounding box corners projected through transform)
+  if (selectedCi >= 0 && selectedCi < cache.length) {
+    const L = cache[selectedCi];
+    if (L.visible) {
+      const scx = L.scx ?? 1, scy = L.scy ?? 1;
+      const skx = L.skx ?? 0, sky = L.sky ?? 0;
+      ctx.save();
+      ctx.transform(scx, sky, skx, scy, L.tx, L.ty);
+      ctx.strokeStyle = "#2563eb";
+      ctx.lineWidth   = 1.5 / Math.max(Math.abs(scx), Math.abs(scy), 0.1);
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(0.5, 0.5, L.w - 1, L.h - 1);
+      ctx.restore();
+    }
+  }
+}
+
+// ── Layer panel ───────────────────────────────────────────────────────────────
+
+let uiLayers = [];
+
+function selectLayer(ci) {
+  selectedCi = ci;
+  renderLayerUI();
+  updatePosControls();
+  composite();
+  document.getElementById("mainCanvas").focus();
+}
+
+function updatePosControls() {
+  const ctrl  = document.getElementById("posControls");
+  const title = document.getElementById("pcTitle");
+  if (selectedCi < 0 || selectedCi >= cache.length) {
+    ctrl.classList.remove("visible");
+    return;
+  }
+  const L = cache[selectedCi];
+  ctrl.classList.add("visible");
+  title.textContent = L.name;
+  document.getElementById("pcX").value   = Math.round(L.tx);
+  document.getElementById("pcY").value   = Math.round(L.ty);
+  document.getElementById("pcScX").value = +(L.scx ?? 1).toFixed(3);
+  document.getElementById("pcScY").value = +(L.scy ?? 1).toFixed(3);
+  document.getElementById("pcSkX").value = +(L.skx ?? 0).toFixed(3);
+  document.getElementById("pcSkY").value = +(L.sky ?? 0).toFixed(3);
+}
+
+function renderLayerUI() {
+  const el = document.getElementById("layerList");
+  el.innerHTML = [...uiLayers].reverse().map((L, ri) => {
+    const idx = uiLayers.length - 1 - ri;
+    const ci  = L._ci;
+    let cls = "li " + L.status;
+    if (L.status === "loaded" && !L.visible) cls += " off";
+    if (ci >= 0 && ci === selectedCi)        cls += " selected";
+    return `<div class="${cls}" data-i="${idx}"><div class="dot" data-dot="${idx}" title="Toggle visibility"></div><span class="li-name" data-sel="${idx}">${L.name}</span></div>`;
+  }).join("");
+  // Dot click = toggle visibility only
+  el.querySelectorAll(".dot[data-dot]").forEach(dot =>
+    dot.addEventListener("click", e => {
+      e.stopPropagation();
+      const i  = +dot.dataset.dot;
+      const ci = uiLayers[i]._ci;
+      if (ci >= 0) {
+        cache[ci].visible = uiLayers[i].visible = !uiLayers[i].visible;
+        renderLayerUI();
+        composite();
+      }
+    })
+  );
+  // Name click = select layer
+  el.querySelectorAll(".li-name[data-sel]").forEach(span =>
+    span.addEventListener("click", e => {
+      e.stopPropagation();
+      const i  = +span.dataset.sel;
+      const ci = uiLayers[i]._ci;
+      selectLayer(ci >= 0 ? ci : -1);
+    })
+  );
+}
+
+// ── Drag to reposition ────────────────────────────────────────────────────────
+
+(function() {
+  const mc = document.getElementById("mainCanvas");
+  let dragging = false, dragStartX = 0, dragStartY = 0, layerStartTx = 0, layerStartTy = 0;
+
+  function canvasXY(e) {
+    const r = mc.getBoundingClientRect();
+    const scaleX = mc.width  / r.width;
+    const scaleY = mc.height / r.height;
+    return [(e.clientX - r.left) * scaleX, (e.clientY - r.top) * scaleY];
+  }
+
+  mc.addEventListener("mousedown", e => {
+    if (selectedCi < 0 || e.button !== 0) return;
+    dragging = true;
+    [dragStartX, dragStartY] = canvasXY(e);
+    layerStartTx = cache[selectedCi].tx;
+    layerStartTy = cache[selectedCi].ty;
+    mc.style.cursor = "grabbing";
+    e.preventDefault();
+  });
+
+  window.addEventListener("mousemove", e => {
+    if (!dragging || selectedCi < 0) return;
+    const [cx, cy] = canvasXY(e);
+    const dx = Math.round(cx - dragStartX);
+    const dy = Math.round(cy - dragStartY);
+    cache[selectedCi].tx = layerStartTx + dx;
+    cache[selectedCi].ty = layerStartTy + dy;
+    updatePosControls();
+    composite();
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false;
+    mc.style.cursor = selectedCi >= 0 ? "crosshair" : "crosshair";
+  });
+})();
+
+// ── Arrow key nudge ───────────────────────────────────────────────────────────
+
+document.getElementById("mainCanvas").addEventListener("keydown", e => {
+  if (selectedCi < 0) return;
+  const step = e.shiftKey ? 5 : 1;
+  const L = cache[selectedCi];
+  if (e.key === "ArrowLeft")  { L.tx -= step; e.preventDefault(); }
+  if (e.key === "ArrowRight") { L.tx += step; e.preventDefault(); }
+  if (e.key === "ArrowUp")    { L.ty -= step; e.preventDefault(); }
+  if (e.key === "ArrowDown")  { L.ty += step; e.preventDefault(); }
+  updatePosControls();
+  composite();
+});
+
+// ── Position input changes ────────────────────────────────────────────────────
+
+document.getElementById("pcX").addEventListener("input", () => {
+  if (selectedCi < 0) return;
+  const v = parseInt(document.getElementById("pcX").value, 10);
+  if (!isNaN(v)) { cache[selectedCi].tx = v; composite(); }
+});
+document.getElementById("pcY").addEventListener("input", () => {
+  if (selectedCi < 0) return;
+  const v = parseInt(document.getElementById("pcY").value, 10);
+  if (!isNaN(v)) { cache[selectedCi].ty = v; composite(); }
+});
+
+function onPcFloat(key, val) {
+  if (selectedCi < 0) return;
+  const v = parseFloat(val);
+  if (!isNaN(v)) { cache[selectedCi][key] = v; composite(); }
+}
+document.getElementById("resetPosBtn").addEventListener("click", () => {
+  if (selectedCi < 0) return;
+  const L = cache[selectedCi];
+  L.tx = L.ox; L.ty = L.oy;
+  L.scx = 1; L.scy = 1; L.skx = 0; L.sky = 0;
+  updatePosControls();
+  composite();
+});
+
+function setMsg(msg, cls="") {
+  const el = document.getElementById("prog");
+  el.textContent = msg;
+  el.className = "prog " + cls;
+}
+
+// ── Build ─────────────────────────────────────────────────────────────────────
+
+async function buildCar() {
+  const carId = document.getElementById("carSel").value;
+  const view  = document.getElementById("viewSel").value;
+  const order = view === "f" ? FRONT_LAYERS : BACK_LAYERS;
+
+  cache = [];
+  uiLayers = [];
+  selectedCi = -1;
+  document.getElementById("posControls").classList.remove("visible");
+  rflStage.innerHTML = "";
+  document.getElementById("mainCanvas").getContext("2d").clearRect(0,0,640,400);
+  ["dlPngBtn","dlSvgBtn","saveServerBtn","retintBtn"].forEach(id =>
+    document.getElementById(id).disabled = true
+  );
+
+  // Fetch position/dimension data for all parts in this car+view
+  let posData = {};
+  try {
+    setMsg("Fetching part positions…");
+    posData = await fetch(`/builder/api/positions/${carId}/${view}`).then(r => r.json());
+  } catch(e) {
+    console.warn("[builder] positions API failed, using fallback 640×400 at 0,0:", e);
+  }
+
+  // Count available vs missing before we start
+  const WHEEL_PARTS = new Set(["wheelF","wheelR","tireF","tireR","tireBack"]);
+  const availCount  = order.filter(n => WHEEL_PARTS.has(n) || posData[n]).length;
+  setMsg(`${availCount}/${order.length} parts found — loading…`);
+
+  for (let i = 0; i < order.length; i++) {
+    const name = order[i];
+    const url  = partUrl(name, carId, view);
+    const pos  = getPartInfo(name, posData, view);
+
+    setMsg(`${i+1}/${order.length}: ${name}…`);
+    uiLayers.push({ name, status: "loading", visible: true, _ci: -1 });
+    renderLayerUI();
+
+    const player = makePlayer(pos.w, pos.h);
+    await loadSwf(player, url);
+
+    // Retry capture if blank — some SWFs need a few extra frames to finish rendering
+    let raw = null;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      raw = capture(player, pos.w, pos.h);
+      // If we got content, or the SWF is genuinely empty (0×0 stub), stop retrying
+      if (!isBlank(raw) || pos.w <= 1 || pos.h <= 1) break;
+      console.warn(`[builder] blank capture for ${name}, retry ${attempt + 1}…`);
+      await waitFrames(5);
+    }
+
+    // Remove player from DOM and let the browser settle before the next one
+    rflStage.innerHTML = "";
+    await waitFrames(3);
+
+    // Strip SWF SetBgColor so layers composite without background boxes.
+    // Primary: use the known bg parsed from the SWF's SetBgColor tag.
+    // Fallback: auto-detect from corner pixels (handles cases where API bg is missing).
+    if (raw) {
+      const bg = pos.bg || autoBg(raw);
+      if (bg) raw = stripBg(raw, bg);
+    }
+
+    const ui = uiLayers[uiLayers.length - 1];
+    if (!isBlank(raw)) {
+      ui._ci = cache.length;
+      cache.push({ name, raw, visible: true,
+        tx: pos.tx, ty: pos.ty, ox: pos.tx, oy: pos.ty,
+        scx: 1, scy: 1, skx: 0, sky: 0,
+        w: pos.w, h: pos.h });
+      ui.status = "loaded";
+    } else {
+      ui.status = "skipped";
+    }
+    renderLayerUI();
+  }
+
+  composite();
+  const skipped = order.length - cache.length;
+  setMsg(`Done — ${cache.length} loaded, ${skipped} skipped (${availCount} available)`, "ok");
+  renderLayerUI();
+  ["dlPngBtn","dlSvgBtn","saveServerBtn","retintBtn"].forEach(id =>
+    document.getElementById(id).disabled = false
+  );
+}
+
+// ── Download helpers ──────────────────────────────────────────────────────────
+
+function triggerDownload(href, name) {
+  const a = Object.assign(document.createElement("a"), { href, download: name });
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(href); a.remove(); }, 2000);
+}
+
+function filename(ext) {
+  const car  = document.getElementById("carSel").value;
+  const view = document.getElementById("viewSel").value === "f" ? "front" : "back";
+  const w    = document.getElementById("whlSel").value;
+  const clr  = document.getElementById("c_global").value.replace("#","");
+  return `car${car}_${view}_w${w}_${clr}.${ext}`;
+}
+
+function downloadPNG() {
+  document.getElementById("mainCanvas").toBlob(blob =>
+    triggerDownload(URL.createObjectURL(blob), filename("png"))
+  , "image/png");
+}
+
+function buildSVGString() {
+  const car = document.getElementById("carSel").value;
+  const clr = document.getElementById("c_global").value;
+  const parts = [
+    `<?xml version="1.0" encoding="UTF-8"?>`,
+    `<!-- Car ${car} ${clr} — 0k.au/builder -->`,
+    `<svg xmlns="http://www.w3.org/2000/svg"`,
+    `     xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"`,
+    `     width="640" height="400" viewBox="0 0 640 400">`
+  ];
+  for (const L of cache) {
+    const c   = PAINTABLE.has(L.name) ? tint(L.raw, partRgb(L.name)) : L.raw;
+    const vis = L.visible ? "inline" : "none";
+    const scx = L.scx ?? 1, scy = L.scy ?? 1;
+    const skx = L.skx ?? 0, sky = L.sky ?? 0;
+    const xfm = (scx === 1 && scy === 1 && skx === 0 && sky === 0)
+      ? `x="${L.tx}" y="${L.ty}"`
+      : `transform="matrix(${scx},${sky},${skx},${scy},${L.tx},${L.ty})"`;
+    parts.push(
+      `  <g inkscape:label="${L.name}" inkscape:groupmode="layer" id="lyr-${L.name}" style="display:${vis}">`,
+      `    <image href="${c.toDataURL("image/png")}" ${xfm} width="${L.w}" height="${L.h}"/>`,
+      `  </g>`
+    );
+  }
+  parts.push("</svg>");
+  return parts.join("\n");
+}
+
+function downloadSVG() {
+  setMsg("Building SVG…");
+  try {
+    const blob = new Blob([buildSVGString()], { type: "image/svg+xml;charset=utf-8" });
+    triggerDownload(URL.createObjectURL(blob), filename("svg"));
+    setMsg("SVG downloaded ✓", "ok");
+  } catch(e) {
+    setMsg("SVG error: " + e.message, "err");
+  }
+}
+
+async function saveToServer() {
+  setMsg("Saving to server…");
+  document.getElementById("saveServerBtn").disabled = true;
+  try {
+    const svg = buildSVGString();
+    const res = await fetch("/builder/api/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ svg, filename: filename("svg") })
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    setMsg("Saved: " + data.filename, "ok");
+    refreshSaved();
+  } catch(e) {
+    setMsg("Server save failed: " + e.message, "err");
+  }
+  document.getElementById("saveServerBtn").disabled = false;
+}
+
+// ── Saved files list ──────────────────────────────────────────────────────────
+
+async function refreshSaved() {
+  try {
+    const files = await fetch("/builder/api/saved").then(r => r.json());
+    const el = document.getElementById("savedList");
+    el.innerHTML = files.length
+      ? `<div class="lbl">Saved on server:</div>` +
+        files.map(f => `<a href="/builder/saved/${f}" target="_blank">⬇ ${f}</a>`).join("")
+      : "";
+  } catch {}
+}
+
+// ── Mini previews ─────────────────────────────────────────────────────────────
+
+const rflPrev = document.getElementById("rflPrev");
+let _previewBusy = false;
+
+// Render one SWF into a small canvas.  Returns false if already rendering.
+async function renderPreview(swfUrl, destCanvas, destW, destH) {
+  if (_previewBusy) return false;
+  _previewBusy = true;
+  try {
+    const nativeW = destW * 3, nativeH = destH * 3;   // render 3× then scale down
+    const p = ruffle.createPlayer();
+    p.style.cssText = `width:${nativeW}px;height:${nativeH}px;display:block`;
+    rflPrev.appendChild(p);
+    await new Promise(resolve => {
+      let done = false;
+      const finish = () => { if (!done) { done = true; clearTimeout(t); waitFrames(10).then(resolve); } };
+      const t = setTimeout(finish, 6000);
+      p.addEventListener("loadeddata", finish, { once: true });
+      p.addEventListener("playing",    finish, { once: true });
+      p.load({ url: swfUrl, allowNetworking: "same-origin", scale: "showall" })
+       .catch(finish);
+    });
+    const inner = p.shadowRoot?.querySelector("canvas") ?? p.querySelector("canvas");
+    if (inner) {
+      const tmp = document.createElement("canvas");
+      tmp.width = nativeW; tmp.height = nativeH;
+      tmp.getContext("2d").drawImage(inner, 0, 0, nativeW, nativeH);
+      const bg = autoBg(tmp);
+      if (bg) stripBg(tmp, bg);
+      // Clear & draw scaled into dest
+      const dCtx = destCanvas.getContext("2d");
+      dCtx.clearRect(0, 0, destW, destH);
+      dCtx.drawImage(tmp, 0, 0, destW, destH);
+    }
+    rflPrev.innerHTML = "";
+  } catch(e) { rflPrev.innerHTML = ""; }
+  _previewBusy = false;
+  return true;
+}
+
+// Queue so rapid selection changes don't stack up Ruffle instances
+let _previewQueue = Promise.resolve();
+function queuePreview(swfUrl, destCanvas, dw, dh) {
+  _previewQueue = _previewQueue.then(() => renderPreview(swfUrl, destCanvas, dw, dh));
+}
+
+async function updateCarPreview() {
+  const carId = document.getElementById("carSel").value;
+  const view  = document.getElementById("viewSel").value;
+  if (!carId || carId === "Loading…") return;
+  const url = `/builder/assets/car/packages/${carId}${view}/body.swf`;
+  queuePreview(url, document.getElementById("carPreview"), 198, 60);
+  updatePartsInfo();
+}
+
+function updateWheelPreview() {
+  const wid = document.getElementById("whlSel").value;
+  const view = document.getElementById("viewSel").value;
+  const vv   = view === "f" ? "F" : "B";
+  queuePreview(`/builder/assets/car/wheel/wheel${vv}F_${wid}.swf`,
+               document.getElementById("whlPreview"), 50, 50);
+}
+
+function updateTirePreview() {
+  const tid  = document.getElementById("tirSel").value;
+  const view = document.getElementById("viewSel").value;
+  const vv   = view === "f" ? "F" : "B";
+  queuePreview(`/builder/assets/car/wheel/tire${vv}F_${tid}.swf`,
+               document.getElementById("tirPreview"), 50, 50);
+}
+
+// Show how many parts the current car+view has available
+async function updatePartsInfo() {
+  const carId = document.getElementById("carSel").value;
+  const view  = document.getElementById("viewSel").value;
+  const el    = document.getElementById("partsInfo");
+  if (!carId || carId === "Loading…") { el.innerHTML = ""; return; }
+  const order = view === "f" ? FRONT_LAYERS : BACK_LAYERS;
+  const WHEEL_PARTS = new Set(["wheelF","wheelR","tireF","tireR","tireBack"]);
+  try {
+    const posData = await fetch(`/builder/api/positions/${carId}/${view}`).then(r => r.json());
+    const found   = order.filter(n => WHEEL_PARTS.has(n) || posData[n]);
+    const missing = order.filter(n => !WHEEL_PARTS.has(n) && !posData[n]);
+    el.innerHTML =
+      `<span class="ok">${found.length}/${order.length} parts available</span>` +
+      (missing.length ? `<br><span class="miss">Missing: ${missing.join(", ")}</span>` : "");
+  } catch { el.innerHTML = ""; }
+}
+
+// ── Populate dropdowns ────────────────────────────────────────────────────────
+
+async function init() {
+  const [cars, wheels, tires] = await Promise.all([
+    fetch("/builder/api/cars").then(r => r.json()),
+    fetch("/builder/api/wheels").then(r => r.json()),
+    fetch("/builder/api/tires").then(r => r.json()),
+  ]);
+
+  document.getElementById("carSel").innerHTML =
+    cars.map(id => `<option value="${id}">Car ${id}</option>`).join("");
+  document.getElementById("whlSel").innerHTML =
+    wheels.map(id => `<option value="${id}">${id}</option>`).join("");
+  document.getElementById("tirSel").innerHTML =
+    tires.map(id => `<option value="${id}">${id}</option>`).join("");
+
+  // Trigger initial previews after dropdowns are populated
+  updateCarPreview();
+  updateWheelPreview();
+  updateTirePreview();
+
+  refreshSaved();
+}
+
+// ── Events ────────────────────────────────────────────────────────────────────
+
+document.getElementById("buildBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("buildBtn");
+  btn.disabled = true; btn.textContent = "⏳ Building…";
+  try { await buildCar(); }
+  catch(e) { setMsg("Error: " + e.message, "err"); console.error(e); }
+  btn.disabled = false; btn.textContent = "▶ Build Car";
+});
+
+document.getElementById("retintBtn").addEventListener("click", () => {
+  composite();
+  setMsg("Re-tinted ✓", "ok");
+});
+
+// ── Colour debug ──────────────────────────────────────────────────────────────
+
+function debugColours() {
+  // Pick the selected layer, or the first paintable loaded layer
+  let L = null;
+  if (selectedCi >= 0 && selectedCi < cache.length) {
+    L = cache[selectedCi];
+  } else {
+    L = cache.find(c => PAINTABLE.has(c.name)) || cache[0];
+  }
+  if (!L) {
+    document.getElementById("dbgPanel").classList.add("open");
+    document.getElementById("dbgTitle").textContent = "Colour Debug — build a car first";
+    document.getElementById("dbgStats").textContent = "No layers loaded yet.\nClick ▶ Build Car, then click this button.";
+    return;
+  }
+
+  const panel = document.getElementById("dbgPanel");
+  panel.classList.add("open");
+  document.getElementById("dbgTitle").textContent = `Colour Debug — "${L.name}" (paintable: ${PAINTABLE.has(L.name)})`;
+
+  const W = 160, H = 100;
+  const raw = L.raw;
+
+  // ── Raw canvas (scaled to fit)
+  const rawC = document.getElementById("dbgRaw");
+  rawC.getContext("2d").clearRect(0,0,W,H);
+  rawC.getContext("2d").drawImage(raw, 0, 0, W, H);
+
+  // ── Tinted canvas
+  const rgb = PAINTABLE.has(L.name) ? partRgb(L.name) : [255,255,255];
+  const tintedSrc = PAINTABLE.has(L.name) ? tint(L.raw, rgb) : L.raw;
+  const tintC = document.getElementById("dbgTinted");
+  tintC.getContext("2d").clearRect(0,0,W,H);
+  tintC.getContext("2d").drawImage(tintedSrc, 0, 0, W, H);
+
+  // ── Split R/G/B channel canvas (side by side, W/3 each)
+  const chC = document.getElementById("dbgChannels");
+  const chCtx = chC.getContext("2d");
+  chCtx.clearRect(0,0,W,H);
+  const cw = Math.floor(W/3);
+  const rawImg = raw.getContext("2d").getImageData(0, 0, raw.width, raw.height);
+  const rd = rawImg.data;
+  // Build three greyscale canvases from each channel
+  for (let ch = 0; ch < 3; ch++) {
+    const tmp = document.createElement("canvas");
+    tmp.width = raw.width; tmp.height = raw.height;
+    const td = tmp.getContext("2d").createImageData(raw.width, raw.height);
+    for (let i = 0; i < rd.length; i += 4) {
+      const v = rd[i + ch];
+      td.data[i] = td.data[i+1] = td.data[i+2] = v;
+      td.data[i+3] = rd[i+3];
+    }
+    tmp.getContext("2d").putImageData(td, 0, 0);
+    // Tint the greyscale with channel colour
+    const overlay = [[255,60,60],[60,255,60],[60,120,255]][ch];
+    const cx2 = document.createElement("canvas");
+    cx2.width = raw.width; cx2.height = raw.height;
+    cx2.getContext("2d").drawImage(tmp, 0, 0);
+    const cx2d = cx2.getContext("2d").getImageData(0,0,raw.width,raw.height);
+    for (let i = 0; i < cx2d.data.length; i+=4) {
+      cx2d.data[i]   = cx2d.data[i]   * overlay[0] / 255;
+      cx2d.data[i+1] = cx2d.data[i+1] * overlay[1] / 255;
+      cx2d.data[i+2] = cx2d.data[i+2] * overlay[2] / 255;
+    }
+    cx2.getContext("2d").putImageData(cx2d, 0, 0);
+    chCtx.drawImage(cx2, ch * cw, 0, cw, H);
+    chCtx.fillStyle = ["rgba(255,80,80,.7)","rgba(80,255,80,.7)","rgba(80,120,255,.7)"][ch];
+    chCtx.font = "9px monospace";
+    chCtx.fillText(["R","G","B"][ch], ch * cw + 3, H - 4);
+  }
+
+  // ── Pixel stats
+  let sr=0, sg=0, sb=0, n=0, nOpaque=0;
+  let maxR=0, maxG=0, maxB=0;
+  for (let i = 0; i < rd.length; i += 4) {
+    if (rd[i+3] > 10) {
+      nOpaque++;
+      sr += rd[i]; sg += rd[i+1]; sb += rd[i+2];
+      if (rd[i]   > maxR) maxR = rd[i];
+      if (rd[i+1] > maxG) maxG = rd[i+1];
+      if (rd[i+2] > maxB) maxB = rd[i+2];
+    }
+    n++;
+  }
+  const mr = nOpaque ? (sr/nOpaque).toFixed(1) : 0;
+  const mg = nOpaque ? (sg/nOpaque).toFixed(1) : 0;
+  const mb = nOpaque ? (sb/nOpaque).toFixed(1) : 0;
+  const ch = raw._paintCh !== undefined ? raw._paintCh : dominantChannel(raw);
+  const chName = ["RED","GREEN","BLUE"][ch];
+  const targetHex = document.getElementById(PART_CLR[L.name] || "c_global").value;
+
+  document.getElementById("dbgStats").textContent =
+    `Part:          ${L.name}  (${raw.width}×${raw.height}px)\n` +
+    `Opaque pixels: ${nOpaque} / ${n}\n` +
+    `Mean RGB raw:  R=${mr}  G=${mg}  B=${mb}\n` +
+    `Max  RGB raw:  R=${maxR}  G=${maxG}  B=${maxB}\n` +
+    `Dominant ch:   ${chName} (ch=${ch})\n` +
+    `Target colour: ${targetHex}  → RGB(${rgb.join(",")})\n` +
+    `\nExpected result: each pixel lum=${chName}[i], then\n` +
+    `  R_out = ${rgb[0]}/255 * lum\n` +
+    `  G_out = ${rgb[1]}/255 * lum\n` +
+    `  B_out = ${rgb[2]}/255 * lum`;
+
+  // ── 10 random non-transparent pixel samples
+  const opaqueIdx = [];
+  for (let i = 0; i < rd.length; i += 4) if (rd[i+3] > 10) opaqueIdx.push(i);
+  const picks = [];
+  for (let k = 0; k < 10 && opaqueIdx.length; k++) {
+    picks.push(opaqueIdx[Math.floor(Math.random() * opaqueIdx.length)]);
+  }
+
+  const tintedImg = tintedSrc.getContext("2d").getImageData(0,0,tintedSrc.width,tintedSrc.height);
+  const td2 = tintedImg.data;
+
+  function makeSamples(containerId, data, indices) {
+    const el = document.getElementById(containerId);
+    el.innerHTML = indices.map(i => {
+      const r2=data[i],g2=data[i+1],b2=data[i+2],a2=data[i+3];
+      const hex = `#${r2.toString(16).padStart(2,"0")}${g2.toString(16).padStart(2,"0")}${b2.toString(16).padStart(2,"0")}`;
+      const luma = 0.299*r2+0.587*g2+0.114*b2;
+      return `<div class="dbg-swatch" style="background:${hex}" title="R:${r2} G:${g2} B:${b2} A:${a2}&#10;${hex}&#10;luma=${luma.toFixed(0)}"></div>`;
+    }).join("");
+  }
+  makeSamples("dbgSamples",  rd,  picks);
+  makeSamples("dbgSamplesT", td2, picks);
+}
+
+document.getElementById("dbgBtn").addEventListener("click", debugColours);
+// Also re-run debug when colour picker changes, if panel is open
+document.querySelectorAll("input[type=color]").forEach(inp =>
+  inp.addEventListener("input", () => {
+    if (document.getElementById("dbgPanel").classList.contains("open")) debugColours();
+  })
+);
+
+document.getElementById("carSel") .addEventListener("change", updateCarPreview);
+document.getElementById("viewSel").addEventListener("change", () => { updateCarPreview(); updateWheelPreview(); updateTirePreview(); });
+document.getElementById("whlSel") .addEventListener("change", updateWheelPreview);
+document.getElementById("tirSel") .addEventListener("change", updateTirePreview);
+
+document.getElementById("dlPngBtn").addEventListener("click", downloadPNG);
+document.getElementById("dlSvgBtn").addEventListener("click", downloadSVG);
+document.getElementById("saveServerBtn").addEventListener("click", saveToServer);
+
+// Live re-tint on any colour change
+document.querySelectorAll("input[type=color]").forEach(inp =>
+  inp.addEventListener("input", () => { if (cache.length) composite(); })
+);
+
+// Global colour syncs to per-body pickers until user overrides them individually
+const SYNC_KEYS = ["c_hood","c_bumper","c_skirt","c_spoiler","c_top","c_trunk"];
+SYNC_KEYS.forEach(id => {
+  const el = document.getElementById(id);
+  el._custom = false;
+  el.addEventListener("input", function() { this._custom = true; });
+});
+document.getElementById("c_global").addEventListener("input", function() {
+  SYNC_KEYS.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el._custom) el.value = this.value;
+  });
+  if (cache.length) composite();
+});
+
+init();
+</script>
+</body>
+</html>

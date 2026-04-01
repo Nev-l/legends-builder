@@ -1,0 +1,1 @@
+fldMonth.autoSize = true;

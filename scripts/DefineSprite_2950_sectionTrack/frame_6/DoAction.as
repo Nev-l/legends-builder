@@ -1,0 +1,2 @@
+stop();
+cover.useHandCursor = false;

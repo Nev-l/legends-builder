@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>Car Builder v2.02 — 0k.au</title>
+<title>Car Builder v2.03 — 0k.au</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#111;color:#ddd;font:13px/1.5 system-ui,sans-serif;display:flex;flex-direction:column;height:100vh;overflow:hidden}
@@ -32,6 +32,8 @@ button{width:100%;padding:6px 4px;border:none;border-radius:3px;font-size:12px;c
 button:disabled{opacity:.35;cursor:default}
 #buildBtn{background:#2563eb;color:#fff}
 #buildBtn:not(:disabled):hover{background:#1d4ed8}
+#swapWheelsBtn{background:#374151;color:#ccc}
+#swapWheelsBtn:not(:disabled):hover{background:#4b5563}
 #retintBtn{background:#374151;color:#ccc}
 #retintBtn:not(:disabled):hover{background:#4b5563}
 .dl-row{display:flex;gap:5px}
@@ -120,7 +122,7 @@ button:disabled{opacity:.35;cursor:default}
 <header>
   <h1>Car Builder</h1>
   <span style="font-size:11px;color:#444">0k.au</span>
-  <span style="font-size:10px;color:#333;margin-left:4px">v2.02</span>
+  <span style="font-size:10px;color:#333;margin-left:4px">v2.03</span>
 </header>
 
 <main>
@@ -171,6 +173,7 @@ button:disabled{opacity:.35;cursor:default}
   </div>
 
   <button id="buildBtn">▶ Build Car</button>
+  <button id="swapWheelsBtn" disabled>⟳ Swap Rims/Tyres</button>
   <button id="retintBtn" disabled>↺ Re-tint (no rebuild)</button>
   <button id="dbgBtn" style="background:#14532d;color:#86efac;border:1px solid #16a34a">Debug colours</button>
 
@@ -793,9 +796,77 @@ async function buildCar() {
   const skipped = order.length - cache.length;
   setMsg(`Done — ${cache.length} loaded, ${skipped} skipped (${availCount} available)`, "ok");
   renderLayerUI();
-  ["dlPngBtn","dlSvgBtn","saveServerBtn","retintBtn"].forEach(id =>
+  ["dlPngBtn","dlSvgBtn","saveServerBtn","retintBtn","swapWheelsBtn"].forEach(id =>
     document.getElementById(id).disabled = false
   );
+}
+
+// ── Swap wheels/tyres without full rebuild ────────────────────────────────────
+// Re-loads only wheelF, wheelR, tireF, tireR (and tireBack if present) in-place.
+// Car body parts are untouched. posData is reused from the last build.
+
+async function swapWheels() {
+  if (!cache.length) return;
+
+  const WHEEL_NAMES = ["tireR","tireF","wheelF","wheelR","tireBack"];
+  const carId = document.getElementById("carSel").value;
+  const view  = document.getElementById("viewSel").value;
+
+  // Only swap names that exist in the current cache
+  const toSwap = WHEEL_NAMES.filter(n => cache.some(c => c.name === n));
+  if (!toSwap.length) { setMsg("No wheel layers found in current build.", "warn"); return; }
+
+  setMsg(`Swapping ${toSwap.length} wheel layers…`);
+
+  // Re-fetch position data so dimensions match the new wheel design
+  let posData = {};
+  try {
+    const r = await fetch(`/builder/api/positions/${carId}/${view}`);
+    if (r.ok) posData = await r.json();
+  } catch(e) {}
+
+  for (let ni = 0; ni < toSwap.length; ni++) {
+    const name = toSwap[ni];
+    const ci   = cache.findIndex(c => c.name === name);
+    if (ci < 0) continue;
+
+    const url = partUrl(name, carId, view);
+    const pos = getPartInfo(name, posData, view);
+
+    setMsg(`Swapping ${ni+1}/${toSwap.length}: ${name}…`);
+
+    const player = makePlayer(pos.w, pos.h);
+    await loadSwf(player, url);
+
+    let raw = null;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      raw = capture(player, pos.w, pos.h);
+      if (!isBlank(raw) || pos.w <= 1 || pos.h <= 1) break;
+      await waitFrames(5);
+    }
+    rflStage.innerHTML = "";
+    await waitFrames(3);
+
+    if (raw) {
+      const bg = pos.bg || autoBg(raw);
+      if (bg) raw = stripBg(raw, bg);
+    }
+
+    if (!isBlank(raw)) {
+      // Replace raw canvas in-place; reset position for new design dimensions
+      cache[ci].raw = raw;
+      cache[ci].w   = pos.w;
+      cache[ci].h   = pos.h;
+      cache[ci].tx  = pos.tx;
+      cache[ci].ty  = pos.ty;
+      cache[ci].ox  = pos.tx;
+      cache[ci].oy  = pos.ty;
+    }
+  }
+
+  composite();
+  if (selectedCi >= 0) updatePosControls();
+  setMsg(`Rims/tyres swapped — ${toSwap.length} layers updated`, "ok");
 }
 
 // ── Download helpers ──────────────────────────────────────────────────────────
@@ -1019,6 +1090,14 @@ document.getElementById("buildBtn").addEventListener("click", async () => {
   try { await buildCar(); }
   catch(e) { setMsg("Error: " + e.message, "err"); console.error(e); }
   btn.disabled = false; btn.textContent = "▶ Build Car";
+});
+
+document.getElementById("swapWheelsBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("swapWheelsBtn");
+  btn.disabled = true; btn.textContent = "⏳ Swapping…";
+  try { await swapWheels(); }
+  catch(e) { setMsg("Error: " + e.message, "err"); console.error(e); }
+  btn.disabled = false; btn.textContent = "⟳ Swap Rims/Tyres";
 });
 
 document.getElementById("retintBtn").addEventListener("click", () => {

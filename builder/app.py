@@ -1,8 +1,10 @@
+import io
 import os
 import struct
+import zipfile
 import zlib
 from pathlib import Path
-from flask import Flask, render_template, send_file, request, jsonify, abort
+from flask import Flask, render_template, send_file, request, jsonify, abort, Response
 
 app = Flask(__name__)
 
@@ -135,6 +137,153 @@ def get_saved(filename):
 def list_saved():
     files = [f.name for f in sorted(SAVE_DIR.glob("*.svg"))]
     return jsonify(files)
+
+
+# ── Bitmap extraction helpers ─────────────────────────────────────────────────
+
+def _png_chunk(tag, data):
+    c = struct.pack('>I', len(data)) + tag + data
+    return c + struct.pack('>I', zlib.crc32(tag + data) & 0xffffffff)
+
+def _make_png_grey(width, height, grey_bytes):
+    """Greyscale (L) PNG from raw single-channel bytes."""
+    raw = b''.join(b'\x00' + grey_bytes[y*width:(y+1)*width] for y in range(height))
+    png  = b'\x89PNG\r\n\x1a\n'
+    png += _png_chunk(b'IHDR', struct.pack('>II', width, height) + bytes([8, 0, 0, 0, 0]))
+    png += _png_chunk(b'IDAT', zlib.compress(raw, 6))
+    png += _png_chunk(b'IEND', b'')
+    return png
+
+def _make_png_rgba(width, height, argb_bytes):
+    """RGBA PNG from SWF Lossless2 ARGB bytes (A,R,G,B order → R,G,B,A)."""
+    raw_lines = []
+    for y in range(height):
+        row = b'\x00'
+        for x in range(width):
+            i = (y * width + x) * 4
+            a, r, g, b = argb_bytes[i], argb_bytes[i+1], argb_bytes[i+2], argb_bytes[i+3]
+            row += bytes([r, g, b, a])
+        raw_lines.append(row)
+    raw = b''.join(raw_lines)
+    png  = b'\x89PNG\r\n\x1a\n'
+    png += _png_chunk(b'IHDR', struct.pack('>II', width, height) + bytes([8, 6, 0, 0, 0]))
+    png += _png_chunk(b'IDAT', zlib.compress(raw, 6))
+    png += _png_chunk(b'IEND', b'')
+    return png
+
+def _jpeg_dimensions(jpg_bytes):
+    """Return (width, height) by scanning SOF markers."""
+    i = 0
+    while i < len(jpg_bytes) - 3:
+        if jpg_bytes[i] == 0xff and jpg_bytes[i+1] in (0xc0, 0xc1, 0xc2, 0xc3):
+            h, w = struct.unpack_from('>HH', jpg_bytes, i + 5)
+            return w, h
+        i += 1
+    return None, None
+
+def _extract_bitmaps(swf_path):
+    """Extract all bitmaps from a SWF file.
+
+    Yields dicts:
+      { 'id': int, 'type': 'jpeg3'|'lossless2',
+        'jpg': bytes|None, 'alpha_png': bytes|None,  # jpeg3
+        'rgba_png': bytes|None,                       # lossless2
+        'w': int, 'h': int }
+    """
+    try:
+        raw = open(swf_path, 'rb').read()
+    except OSError:
+        return
+    if len(raw) < 9 or raw[:3] not in (b'FWS', b'CWS'):
+        return
+    if raw[:3] == b'CWS':
+        try:
+            raw = raw[:8] + zlib.decompress(raw[8:])
+        except Exception:
+            return
+
+    _,_,_,_,rb = _read_rect(raw, 8)
+    off = 8 + rb + 4
+    end = len(raw)
+
+    while off + 2 <= end:
+        hdr = struct.unpack_from('<H', raw, off)[0]; off += 2
+        tt  = hdr >> 6
+        tl  = hdr & 0x3F
+        if tl == 63:
+            if off + 4 > end: break
+            tl = struct.unpack_from('<I', raw, off)[0]; off += 4
+        te = off + tl
+        if te > end: break
+
+        if tt == 35:  # DefineBitsJPEG3
+            bid  = struct.unpack_from('<H', raw, off)[0]
+            dlen = struct.unpack_from('<I', raw, off + 2)[0]
+            jpg  = raw[off + 6 : off + 6 + dlen]
+            # Strip erroneous SOI/EOI pair Flash sometimes prepends
+            if jpg[:4] == b'\xff\xd9\xff\xd8':
+                jpg = jpg[4:]
+            alpha_compressed = raw[off + 6 + dlen : te]
+            w, h = _jpeg_dimensions(jpg)
+            alpha_png = None
+            if w and h and alpha_compressed:
+                try:
+                    alpha_raw = zlib.decompress(alpha_compressed)
+                    alpha_png = _make_png_grey(w, h, alpha_raw[:w*h])
+                except Exception:
+                    pass
+            yield {'id': bid, 'type': 'jpeg3', 'jpg': jpg,
+                   'alpha_png': alpha_png, 'rgba_png': None, 'w': w or 0, 'h': h or 0}
+
+        elif tt == 36:  # DefineBitsLossless2 (fmt 5 = 32-bit ARGB)
+            bid = struct.unpack_from('<H', raw, off)[0]
+            fmt = raw[off + 2]
+            w   = struct.unpack_from('<H', raw, off + 3)[0]
+            h   = struct.unpack_from('<H', raw, off + 5)[0]
+            compressed = raw[off + 7 : te]
+            rgba_png = None
+            if fmt == 5:
+                try:
+                    argb = zlib.decompress(compressed)
+                    rgba_png = _make_png_rgba(w, h, argb[:w*h*4])
+                except Exception:
+                    pass
+            yield {'id': bid, 'type': 'lossless2', 'jpg': None,
+                   'alpha_png': None, 'rgba_png': rgba_png, 'w': w, 'h': h}
+
+        off = te
+
+
+@app.route(P + "/api/wheels/raw.zip")
+def wheels_raw_zip():
+    """Stream a zip of every wheelFF SWF's raw bitmaps as original JPEG + alpha PNG."""
+    wheel_dir = CAR_DIR / "wheel"
+    swfs = sorted(wheel_dir.glob("wheelFF_*.swf"),
+                  key=lambda p: int(p.stem.split('_')[1]))
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for swf in swfs:
+            stem = swf.stem  # e.g. wheelFF_1
+            for bm in _extract_bitmaps(swf):
+                bid = bm['id']
+                # Use id suffix only when multiple bitmaps in one SWF
+                suffix = f"_bm{bid}"
+
+                if bm['type'] == 'jpeg3' and bm['jpg']:
+                    zf.writestr(f"wheels/{stem}{suffix}.jpg", bm['jpg'])
+                    if bm['alpha_png']:
+                        zf.writestr(f"wheels/{stem}{suffix}_alpha.png", bm['alpha_png'])
+
+                elif bm['type'] == 'lossless2' and bm['rgba_png']:
+                    zf.writestr(f"wheels/{stem}{suffix}.png", bm['rgba_png'])
+
+    buf.seek(0)
+    return Response(
+        buf.read(),
+        mimetype='application/zip',
+        headers={'Content-Disposition': 'attachment; filename="wheels_raw.zip"'}
+    )
 
 
 # ── SWF position parser ───────────────────────────────────────────────────────

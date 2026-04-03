@@ -123,8 +123,9 @@ async def get_recipe(slug: str, db: AsyncSession = Depends(get_db)):
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
 
-    # Increment view count
-    recipe.view_count += 1
+    # Increment view count (fire and forget — don't block on commit)
+    recipe.view_count = (recipe.view_count or 0) + 1
+    await db.commit()
 
     return {
         "id": recipe.id,
@@ -193,6 +194,8 @@ async def create_recipe(
     for i, step in enumerate(body.steps):
         db.add(RecipeStep(recipe_id=recipe.id, position=i + 1, **step.model_dump()))
 
+    await db.commit()
+    await db.refresh(recipe)
     return recipe
 
 
@@ -231,6 +234,8 @@ async def scrape_recipe(
     for i, step_text in enumerate(data.get("steps", [])):
         db.add(RecipeStep(recipe_id=recipe.id, position=i + 1, body=step_text))
 
+    await db.commit()
+    await db.refresh(recipe)
     return recipe
 
 
@@ -278,6 +283,8 @@ async def fork_recipe(
     for i, step in enumerate(steps):
         db.add(RecipeStep(recipe_id=fork.id, position=i + 1, **step.model_dump()))
 
+    await db.commit()
+    await db.refresh(fork)
     return fork
 
 

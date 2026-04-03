@@ -1,23 +1,25 @@
 """
 RecipeHub FastAPI application entry point.
 Serves the API at /recipes/api/* and the static Next.js frontend at /recipes/*.
+Unknown paths under /recipes/* fall back to index.html (SPA routing).
 """
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from pathlib import Path
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-import os
+from fastapi.responses import FileResponse, JSONResponse
 
 from app.core.config import settings
 from app.api.routes import auth, recipes, meal_planner, pantry
 
 
+STATIC_DIR = Path(__file__).parent.parent / "static"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: nothing heavy yet (migrations run via alembic separately)
     yield
-    # Shutdown
 
 
 app = FastAPI(
@@ -41,7 +43,7 @@ app.add_middleware(
 app.include_router(auth.router,         prefix=settings.API_PREFIX)
 app.include_router(recipes.router,      prefix=settings.API_PREFIX)
 app.include_router(meal_planner.router, prefix=settings.API_PREFIX)
-app.include_router(pantry.router,      prefix=settings.API_PREFIX)
+app.include_router(pantry.router,       prefix=settings.API_PREFIX)
 
 
 # ── Health check ──────────────────────────────────────────────────────────────
@@ -50,8 +52,41 @@ async def health():
     return {"status": "ok", "version": "0.1.0"}
 
 
-# ── Serve static Next.js build at /recipes/* ─────────────────────────────────
-# The frontend is built with `next build && next export` → /out directory
-STATIC_DIR = os.path.join(os.path.dirname(__file__), "..", "static")
-if os.path.isdir(STATIC_DIR):
-    app.mount("/recipes", StaticFiles(directory=STATIC_DIR, html=True), name="frontend")
+# ── Static assets (_next/*, *.css, *.js, etc.) ───────────────────────────────
+if STATIC_DIR.is_dir():
+    app.mount(
+        "/recipes/_next",
+        StaticFiles(directory=str(STATIC_DIR / "_next")),
+        name="next-assets",
+    )
+
+    # Known static page directories
+    for page in ("login", "pantry", "planner", "404"):
+        page_dir = STATIC_DIR / page
+        if page_dir.is_dir():
+            app.mount(
+                f"/recipes/{page}",
+                StaticFiles(directory=str(page_dir), html=True),
+                name=f"page-{page}",
+            )
+
+    # ── SPA fallback: everything else under /recipes/* → index.html ──────────
+    @app.get("/recipes/{path:path}")
+    async def spa_fallback(path: str, request: Request):
+        # Serve the actual file if it exists (e.g. index.txt, favicon)
+        candidate = STATIC_DIR / path
+        if candidate.is_file():
+            return FileResponse(str(candidate))
+        # Otherwise serve the SPA shell
+        index = STATIC_DIR / "index.html"
+        if index.is_file():
+            return FileResponse(str(index))
+        return JSONResponse({"detail": "Not found"}, status_code=404)
+
+    @app.get("/recipes")
+    @app.get("/recipes/")
+    async def spa_root():
+        index = STATIC_DIR / "index.html"
+        if index.is_file():
+            return FileResponse(str(index))
+        return JSONResponse({"detail": "Not found"}, status_code=404)

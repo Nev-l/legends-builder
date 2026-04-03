@@ -42,18 +42,24 @@ SITEMAPS = [
     "https://www.recipetineats.com/post-sitemap2.xml",
     "https://www.budgetbytes.com/post-sitemap.xml",
     "https://www.budgetbytes.com/post-sitemap2.xml",
-    "https://www.simplyrecipes.com/sitemap_1.xml",
-    "https://www.simplyrecipes.com/sitemap_2.xml",
-    "https://www.allrecipes.com/sitemap/allrecipes-sm-recipes-1.xml",
-    "https://www.allrecipes.com/sitemap/allrecipes-sm-recipes-2.xml",
-    "https://www.allrecipes.com/sitemap/allrecipes-sm-recipes-3.xml",
+    "https://www.budgetbytes.com/post-sitemap3.xml",
+    "https://www.loveandlemons.com/post-sitemap.xml",
+    "https://www.loveandlemons.com/post-sitemap2.xml",
+    "https://cookieandkate.com/post-sitemap.xml",
+    "https://cookieandkate.com/post-sitemap2.xml",
+    "https://www.skinnytaste.com/post-sitemap1.xml",
+    "https://www.skinnytaste.com/post-sitemap2.xml",
+    "https://minimalistbaker.com/post-sitemap.xml",
 ]
 
-# Pattern — only follow URLs that look like actual recipes (not category/tag pages)
+# Pattern — only follow URLs that look like actual recipes
 _RECIPE_URL_RE = re.compile(
-    r"(allrecipes\.com/recipe/|recipetineats\.com/(?!category|tag|page)"
-    r"|budgetbytes\.com/(?!category|tag|page|about|contact)"
-    r"|simplyrecipes\.com/(?!category|tag|recipes/$|about|contact))"
+    r"(recipetineats\.com/(?!category|tag|page|author|shop)"
+    r"|budgetbytes\.com/(?!category|tag|page|about|contact|meal-prep)"
+    r"|loveandlemons\.com/(?!category|tag|page|about|contact)"
+    r"|cookieandkate\.com/(?!category|tag|page|about|contact)"
+    r"|skinnytaste\.com/(?!category|tag|page|about|contact|shop)"
+    r"|minimalistbaker\.com/(?!category|tag|page|about|contact))"
 )
 
 
@@ -89,6 +95,24 @@ async def fetch_sitemap_urls(client: httpx.AsyncClient, url: str) -> list[str]:
     return urls
 
 
+async def get_or_create_ingredient(db, name: str) -> Optional[int]:
+    """Get ingredient id, creating if needed. Handles concurrent inserts."""
+    name = name.strip().lower()[:200]
+    if not name:
+        return None
+    ing = await db.scalar(select(Ingredient).where(Ingredient.name == name))
+    if ing:
+        return ing.id
+    # Use INSERT ... ON CONFLICT DO NOTHING via raw SQL to avoid race conditions
+    from sqlalchemy import text
+    await db.execute(
+        text("INSERT INTO ingredients (name, canonical, allergen_tags) VALUES (:n, :n, '{}') ON CONFLICT (name) DO NOTHING"),
+        {"n": name},
+    )
+    ing = await db.scalar(select(Ingredient).where(Ingredient.name == name))
+    return ing.id if ing else None
+
+
 async def save_recipe(db, data: dict, source_url: str) -> bool:
     """Save scraped recipe to DB. Returns True if saved, False if skipped."""
     title = data.get("title", "").strip()
@@ -109,51 +133,38 @@ async def save_recipe(db, data: dict, source_url: str) -> bool:
     if existing:
         return False
 
-    recipe = Recipe(
-        title=title,
-        slug=slug,
-        description=data.get("description") or None,
-        source="scraped",
-        source_url=source_url,
-        image_url=data.get("image") or None,
-        prep_minutes=data.get("prep_minutes"),
-        cook_minutes=data.get("cook_minutes"),
-        servings=data.get("servings", 4),
-        diet_tags=[],
-        is_published=True,
-    )
-    db.add(recipe)
-    await db.flush()
+    try:
+        recipe = Recipe(
+            title=title,
+            slug=slug,
+            description=data.get("description") or None,
+            source="scraped",
+            source_url=source_url,
+            image_url=data.get("image") or None,
+            prep_minutes=data.get("prep_minutes"),
+            cook_minutes=data.get("cook_minutes"),
+            servings=data.get("servings", 4),
+            diet_tags=[],
+            is_published=True,
+        )
+        db.add(recipe)
+        await db.flush()
 
-    for pos, raw in enumerate(data.get("ingredients", [])):
-        name = str(raw).strip().lower()[:200]
-        if not name:
-            continue
-        ing = await db.scalar(select(Ingredient).where(Ingredient.name == name))
-        if not ing:
-            try:
-                ing = Ingredient(name=name, canonical=name)
-                db.add(ing)
-                await db.flush()
-            except Exception:
-                await db.rollback()
-                # Another worker inserted it — fetch it
-                ing = await db.scalar(select(Ingredient).where(Ingredient.name == name))
-                if not ing:
-                    continue
-        db.add(RecipeIngredient(
-            recipe_id=recipe.id,
-            ingredient_id=ing.id,
-            position=pos,
-        ))
+        for pos, raw in enumerate(ingredients):
+            ing_id = await get_or_create_ingredient(db, str(raw))
+            if ing_id:
+                db.add(RecipeIngredient(recipe_id=recipe.id, ingredient_id=ing_id, position=pos))
 
-    for pos, step_text in enumerate(data.get("steps", [])):
-        body = str(step_text).strip()
-        if body:
-            db.add(RecipeStep(recipe_id=recipe.id, position=pos + 1, body=body))
+        for pos, step_text in enumerate(steps):
+            body = str(step_text).strip()
+            if body:
+                db.add(RecipeStep(recipe_id=recipe.id, position=pos + 1, body=body))
 
-    await db.commit()
-    return True
+        await db.commit()
+        return True
+    except Exception as e:
+        await db.rollback()
+        raise
 
 
 async def worker(queue: asyncio.Queue, results: dict, client: httpx.AsyncClient, worker_id: int):

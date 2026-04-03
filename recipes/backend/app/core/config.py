@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     # Grocery price cache TTL (seconds) — 6 hours
     PRICE_CACHE_TTL: int = 60 * 60 * 6
 
+    # Google OAuth
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_REDIRECT_URI: str = "https://0k.au/recipes/api/auth/google/callback"
+
 
 @lru_cache
 def get_settings() -> Settings:

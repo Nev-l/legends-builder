@@ -131,4 +131,4 @@ async def google_callback(code: str, db: AsyncSession = Depends(get_db)):
         await db.commit()
 
     token = create_access_token(user.id)
-    return RedirectResponse(f"/recipes?token={token}")
+    return RedirectResponse(f"/recipes?token={token}&username={user.username}")

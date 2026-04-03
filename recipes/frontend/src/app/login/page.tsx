@@ -18,7 +18,7 @@ function LoginInner() {
     const token = params.get("token");
     if (token) {
       localStorage.setItem("rh_token", token);
-      router.push("/");
+      window.location.href = "/recipes";
     }
   }, [params, router]);
 
@@ -31,9 +31,10 @@ function LoginInner() {
       const body = mode === "login"
         ? { email, password }
         : { email, password, username };
-      const res = await api.post<{ access_token: string }>(path, body);
+      const res = await api.post<{ access_token: string; username: string }>(path, body);
       localStorage.setItem("rh_token", res.access_token);
-      router.push("/");
+      localStorage.setItem("rh_username", res.username);
+      window.location.href = "/recipes";
     } catch (e: any) {
       setError(e.message ?? "Something went wrong");
     } finally {

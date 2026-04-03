@@ -63,6 +63,8 @@ export default function Home() {
     const token = params.get("token");
     if (token) {
       localStorage.setItem("rh_token", token);
+      const uname = params.get("username");
+      if (uname) localStorage.setItem("rh_username", uname);
       window.history.replaceState({}, "", "/recipes");
     }
   }, []);

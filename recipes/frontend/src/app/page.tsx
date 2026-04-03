@@ -44,6 +44,18 @@ interface RecipeDetail extends Recipe {
 
 const SORTS = ["trending", "newest", "top"] as const;
 
+const DIETS = [
+  { key: "keto",        label: "Keto" },
+  { key: "carnivore",   label: "Carnivore" },
+  { key: "vegan",       label: "Vegan" },
+  { key: "vegetarian",  label: "Vegetarian" },
+  { key: "gluten_free", label: "Gluten-Free" },
+  { key: "dairy_free",  label: "Dairy-Free" },
+  { key: "high_protein",label: "High Protein" },
+  { key: "low_carb",    label: "Low Carb" },
+  { key: "paleo",       label: "Paleo" },
+] as const;
+
 export default function Home() {
   // Pick up Google OAuth token redirect: /recipes?token=...
   useEffect(() => {
@@ -71,13 +83,15 @@ export default function Home() {
 
 function RecipeList() {
   const [sort, setSort] = useState<(typeof SORTS)[number]>("trending");
+  const [diet, setDiet] = useState("");
   const [q, setQ] = useState("");
   const [search, setSearch] = useState("");
   const [scraping, setScraping] = useState(false);
   const [scrapeError, setScrapeError] = useState("");
 
+  const swrKey = `/recipes?sort=${sort}${search ? `&q=${encodeURIComponent(search)}` : ""}${diet ? `&diet=${diet}` : ""}`;
   const { data: recipes, isLoading, mutate } = useSWR<Recipe[]>(
-    `/recipes?sort=${sort}${search ? `&q=${encodeURIComponent(search)}` : ""}`,
+    swrKey,
     (url: string) => api.get<Recipe[]>(url.replace("/recipes/api", ""))
   );
 
@@ -155,6 +169,29 @@ function RecipeList() {
         </div>
       </div>
       {scrapeError && <p className="mb-4 text-sm text-red-400">{scrapeError}</p>}
+
+      {/* Diet filters */}
+      <div className="mb-6 flex flex-wrap gap-2">
+        <button
+          onClick={() => setDiet("")}
+          className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+            !diet ? "bg-brand-500 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white"
+          }`}
+        >
+          All
+        </button>
+        {DIETS.map((d) => (
+          <button
+            key={d.key}
+            onClick={() => setDiet(diet === d.key ? "" : d.key)}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+              diet === d.key ? "bg-brand-500 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white"
+            }`}
+          >
+            {d.label}
+          </button>
+        ))}
+      </div>
 
       {isLoading ? (
         <p className="text-center text-gray-500">Loading…</p>

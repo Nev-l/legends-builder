@@ -60,24 +60,18 @@ if STATIC_DIR.is_dir():
         name="next-assets",
     )
 
-    # Known static page directories
-    for page in ("login", "pantry", "planner", "404"):
-        page_dir = STATIC_DIR / page
-        if page_dir.is_dir():
-            app.mount(
-                f"/recipes/{page}",
-                StaticFiles(directory=str(page_dir), html=True),
-                name=f"page-{page}",
-            )
-
     # ── SPA fallback: everything else under /recipes/* → index.html ──────────
     @app.get("/recipes/{path:path}")
     async def spa_fallback(path: str, request: Request):
-        # Serve the actual file if it exists (e.g. index.txt, favicon)
         candidate = STATIC_DIR / path
+        # Exact file match
         if candidate.is_file():
             return FileResponse(str(candidate))
-        # Otherwise serve the SPA shell
+        # Directory with index.html (e.g. /recipes/login → login/index.html)
+        dir_index = candidate / "index.html"
+        if dir_index.is_file():
+            return FileResponse(str(dir_index))
+        # SPA shell for all other paths (recipe slugs etc.)
         index = STATIC_DIR / "index.html"
         if index.is_file():
             return FileResponse(str(index))

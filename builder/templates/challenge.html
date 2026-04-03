@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>1320 Challenge Builder v1.01 — 0k.au</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#111;color:#ddd;font:13px/1.5 system-ui,sans-serif;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+header{background:#1a1a1a;border-bottom:1px solid #333;padding:8px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0}
+header h1{font-size:15px;font-weight:600;color:#fff}
+main{display:flex;flex:1;overflow:hidden}
+
+/* ── Sidebar ── */
+#sidebar{width:230px;flex-shrink:0;background:#161616;border-right:1px solid #2a2a2a;overflow-y:auto;padding:10px}
+.grp{margin-bottom:11px}
+.grp label{display:block;font-size:10px;color:#555;margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em}
+.grp select{width:100%;background:#222;border:1px solid #333;color:#ddd;padding:4px 7px;border-radius:3px;font-size:12px}
+.grp select:focus{outline:1px solid #555}
+
+.clr-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.clr-item{display:flex;flex-direction:column;gap:2px}
+.clr-item span{font-size:10px;color:#555}
+.clr-item input[type=color]{width:100%;height:26px;padding:1px 2px;border:1px solid #333;border-radius:3px;background:#222;cursor:pointer}
+
+hr.div{border:none;border-top:1px solid #252525;margin:8px 0}
+
+button{width:100%;padding:6px 4px;border:none;border-radius:3px;font-size:12px;cursor:pointer;font-weight:600;margin-bottom:5px}
+button:disabled{opacity:.35;cursor:default}
+#buildBtn{background:#c2410c;color:#fff}
+#buildBtn:not(:disabled):hover{background:#9a3412}
+.dl-row{display:flex;gap:5px}
+.dl-row button{font-size:11px}
+#dlPngBtn{background:#166534;color:#fff}
+#dlPngBtn:not(:disabled):hover{background:#15803d}
+#dlSvgBtn{background:#1e3a5f;color:#fff}
+#dlSvgBtn:not(:disabled):hover{background:#1e40af}
+
+.prog{font-size:11px;color:#666;min-height:16px;margin:3px 0}
+.prog.ok{color:#4ade80}
+.prog.err{color:#f87171}
+.prog.warn{color:#fbbf24}
+
+.preview-box{margin-top:5px;background:#0d0d0d;border:1px solid #222;border-radius:3px;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:4px}
+.preview-box img{max-width:100%;max-height:100%;display:block;image-rendering:auto}
+
+/* view toggle */
+.view-toggle{display:flex;gap:4px;margin-bottom:6px}
+.view-toggle button{flex:1;padding:4px 0;font-size:11px;background:#222;color:#777;border:1px solid #333;margin:0}
+.view-toggle button.active{background:#333;color:#fff;border-color:#555}
+
+/* wheel preview grid */
+#whlGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:3px;margin-top:4px}
+.whl-thumb{background:#0d0d0d;border:1px solid #2a2a2a;border-radius:3px;cursor:pointer;padding:2px;display:flex;flex-direction:column;align-items:center;gap:1px}
+.whl-thumb:hover{border-color:#555}
+.whl-thumb.selected{border-color:#c2410c;background:#1a0800}
+.whl-thumb img{width:36px;height:auto;display:block;image-rendering:auto}
+.whl-thumb span{font-size:8px;color:#555;text-align:center;line-height:1.2;word-break:break-all}
+.whl-thumb.selected span{color:#fb923c}
+
+/* ── Canvas area ── */
+#canvas-area{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0d0d0d;overflow:auto;padding:20px;gap:10px}
+#mainCanvas{border:1px solid #2a2a2a;background:#1a1a1a;display:block;image-rendering:auto}
+.canvas-info{font-size:10px;color:#333}
+
+/* ── Wheel position sliders ── */
+#whl-controls{background:#161616;border:1px solid #2a2a2a;border-radius:4px;padding:8px;width:100%;max-width:500px}
+#whl-controls h3{font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.sl-row{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+.sl-row label{font-size:10px;color:#555;width:70px;flex-shrink:0}
+.sl-row input[type=range]{flex:1}
+.sl-row .sl-val{font-size:10px;color:#777;width:30px;text-align:right;flex-shrink:0}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>1320 Challenge Builder</h1>
+  <span style="font-size:11px;color:#444">0k.au</span>
+  <span style="font-size:10px;color:#333;margin-left:4px">v1.01</span>
+</header>
+
+<main>
+<!-- Sidebar -->
+<div id="sidebar">
+
+  <div class="grp">
+    <label>Car</label>
+    <select id="carSel"><option value="">Loading…</option></select>
+    <div class="view-toggle" style="margin-top:5px">
+      <button id="viewFront" class="active">Front</button>
+      <button id="viewRear">Rear</button>
+    </div>
+    <div class="preview-box" style="height:80px">
+      <img id="carPreview" src="" alt="">
+    </div>
+  </div>
+
+  <div class="grp">
+    <label>Body colour</label>
+    <div class="clr-grid">
+      <div class="clr-item"><span>Body</span><input type="color" id="c_body" value="#cc3300"></div>
+      <div class="clr-item"><span>Graphic</span><input type="color" id="c_graphic" value="#ffffff"></div>
+    </div>
+  </div>
+
+  <div class="grp">
+    <label>Graphic</label>
+    <select id="graphicSel">
+      <option value="0">None</option>
+      <option value="1">Stripe</option>
+      <option value="2">2 Stripe</option>
+      <option value="3">Lightning</option>
+      <option value="4">Side Stripes</option>
+      <option value="5">Flames</option>
+    </select>
+  </div>
+
+  <div class="grp">
+    <label>Wheel design</label>
+    <div id="whlGrid"></div>
+  </div>
+
+  <div class="grp">
+    <label>Wheel colour <span id="whlClrReset" style="color:#444;font-size:9px;cursor:pointer;text-decoration:underline;margin-left:4px" title="Reset to default">↺</span></label>
+    <input type="color" id="c_wheel" value="#aaaaaa" style="width:100%;height:26px;border:1px solid #333;border-radius:3px;background:#222;cursor:pointer">
+  </div>
+
+  <button id="buildBtn">▶ Build Car</button>
+
+  <div class="prog" id="prog"></div>
+  <hr class="div">
+
+  <div class="dl-row">
+    <button id="dlPngBtn" disabled>⬇ PNG</button>
+    <button id="dlSvgBtn" disabled>⬇ SVG</button>
+  </div>
+
+</div>
+
+<!-- Canvas + wheel controls -->
+<div id="canvas-area">
+  <canvas id="mainCanvas" width="500" height="260"></canvas>
+  <div class="canvas-info">Adjust wheel position with the sliders below</div>
+
+  <div id="whl-controls">
+    <h3>Wheel position &amp; scale</h3>
+    <div class="sl-row"><label>Front X</label><input type="range" id="fwx" min="-50" max="50" value="0"><span class="sl-val" id="fwx_v">0</span></div>
+    <div class="sl-row"><label>Front Y</label><input type="range" id="fwy" min="-30" max="30" value="0"><span class="sl-val" id="fwy_v">0</span></div>
+    <div class="sl-row"><label>Rear X</label> <input type="range" id="rwx" min="-50" max="50" value="0"><span class="sl-val" id="rwx_v">0</span></div>
+    <div class="sl-row"><label>Rear Y</label> <input type="range" id="rwy" min="-30" max="30" value="0"><span class="sl-val" id="rwy_v">0</span></div>
+    <div class="sl-row"><label>Wheel scale</label><input type="range" id="wscale" min="50" max="150" value="100"><span class="sl-val" id="wscale_v">100%</span></div>
+  </div>
+</div>
+</main>
+
+<script>
+"use strict";
+
+// ── Data loaded from API ──────────────────────────────────────────────────────
+let CARS    = [];   // [{id, name, block_path, car_img, detail_path, graphic_paths, racecar_path}]
+let WHEELS  = [];   // [{name, f_path, r_path}]
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let blockImg    = null;   // solid colour silhouette → tint this for body colour
+let carImg      = null;   // transparent car art from images/ → draw as-is on top of block
+let detailImg   = null;   // extra outlines/trim sprite → draw as-is on top of graphic
+let rearImg     = null;   // racecar rear view
+let graphicImgs = [];     // Array[6] of HTMLImageElement — graphic frames 1-6
+let whlF        = null;
+let whlR        = null;
+let carData     = null;
+let viewMode    = "front";
+
+// Per-car wheel anchor points — auto-detected from wheel arch pixels.
+// Format: [fx, fy_bottom, rx, ry_bottom, f_h_frac, r_h_frac]
+//   fx/rx       = wheel center X as fraction of car image width
+//   fy/ry_bottom= wheel bottom Y as fraction of car image height
+//   f/r_h_frac  = wheel drawn height as fraction of car drawn height (dh)
+const WHEEL_ANCHORS = {
+  "supraTurbo":      [0.717, 0.934, 0.276, 0.934, 0.487, 0.447],
+  "mustangSVTCobra": [0.683, 0.927, 0.245, 0.927, 0.482, 0.482],
+  "skylineGTR":      [0.649, 0.931, 0.218, 0.931, 0.483, 0.483],
+  "viperSRT10":      [0.690, 0.901, 0.261, 0.901, 0.458, 0.458],
+  "acuraRSX":        [0.672, 0.932, 0.242, 0.918, 0.483, 0.469],
+  "moparDragCar":    [0.852, 0.671, 0.408, 0.804, 0.222, 0.354],
+  "choiceF1":        [0.600, 0.951, 0.169, 0.926, 0.508, 0.484],
+  "ramSRT10":        [0.812, 0.865, 0.390, 0.930, 0.421, 0.485],
+  "1320FunnyCar":    [0.859, 0.766, 0.402, 0.918, 0.316, 0.468],
+  "RX8":             [0.853, 0.837, 0.389, 0.939, 0.388, 0.490],
+  "NSX":             [0.676, 0.937, 0.242, 0.937, 0.493, 0.366],
+  "SRT4":            [0.828, 0.871, 0.360, 0.939, 0.424, 0.492],
+  "nittoDragster":   [0.784, 0.892, 0.274, 0.974, 0.443, 0.273],
+  "stockCar":        [0.849, 0.811, 0.418, 0.947, 0.364, 0.500],
+  "WRX":             [0.592, 0.951, 0.203, 0.938, 0.507, 0.493],
+  "charger":         [0.825, 0.833, 0.376, 0.927, 0.387, 0.480],
+  "challenger":      [0.821, 0.836, 0.370, 0.928, 0.388, 0.480],
+  "civicSi":         [0.736, 0.953, 0.295, 0.959, 0.509, 0.439],
+  "lancerEVOVII":    [0.724, 0.943, 0.279, 0.950, 0.496, 0.489],
+  "semiTruck":       [0.843, 0.909, 0.357, 0.971, 0.460, 0.522],
+  "F1LM":            [0.818, 0.792, 0.442, 0.896, 0.347, 0.451],
+};
+const DEFAULT_ANCHOR = [0.68, 0.92, 0.25, 0.90, 0.45, 0.42];
+// Native aspect ratios of the wheel sprites (w/h) — fixed across all designs
+const WF_ASPECT = 74 / 81;   // front wheel
+const WR_ASPECT = 55 / 72;   // rear wheel
+
+// ── Image loading helper ───────────────────────────────────────────────────────
+function loadImg(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    // No crossOrigin — assets are same-origin, setting it causes canvas taint issues
+    img.onload  = () => resolve(img);
+    img.onerror = () => reject(new Error("Failed to load: " + url));
+    img.src = url;
+  });
+}
+
+// ── Colour tinting ────────────────────────────────────────────────────────────
+// Paint pixels are pre-baked red (R > G*1.4 and R > B*1.4)
+function hexRgb(hex) {
+  const n = parseInt(hex.replace("#",""), 16);
+  return [(n>>16)&0xFF, (n>>8)&0xFF, n&0xFF];
+}
+
+// Tint all non-transparent pixels: replace colour, preserve luminance shading.
+// For near-black pixels (solid silhouettes) luminance = alpha-normalised so
+// the tint still shows through. Used for: detail silhouette, rear view, wheels.
+function tintCanvas(src, rgb) {
+  const [r, g, b] = rgb;
+  const c = document.createElement("canvas");
+  c.width  = src.naturalWidth  || src.width;
+  c.height = src.naturalHeight || src.height;
+  const ctx = c.getContext("2d");
+  ctx.drawImage(src, 0, 0);
+  const img = ctx.getImageData(0, 0, c.width, c.height);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i+3] < 10) continue;
+    const maxC = Math.max(d[i], d[i+1], d[i+2]);
+    // If pixel has visible colour use it as luminance; otherwise use 1.0
+    // (solid black silhouette — apply full target colour, alpha carries softness)
+    const lum = maxC > 20 ? maxC / 255 : 1.0;
+    d[i]   = (r * lum + .5) | 0;
+    d[i+1] = (g * lum + .5) | 0;
+    d[i+2] = (b * lum + .5) | 0;
+  }
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+
+function tintGraphicCanvas(src, rgb) {
+  // Graphic sprites are white/light — tint ALL non-transparent pixels using the colour
+  const [r, g, b] = rgb;
+  const c = document.createElement("canvas");
+  c.width  = src.naturalWidth  || src.width;
+  c.height = src.naturalHeight || src.height;
+  const ctx = c.getContext("2d");
+  ctx.drawImage(src, 0, 0);
+  const img = ctx.getImageData(0, 0, c.width, c.height);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i+3] < 10) continue;
+    const lum = (d[i] + d[i+1] + d[i+2]) / (3 * 255);
+    d[i]   = (r * lum + .5) | 0;
+    d[i+1] = (g * lum + .5) | 0;
+    d[i+2] = (b * lum + .5) | 0;
+  }
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+
+function tintWheelCanvas(src, rgb) {
+  const [r, g, b] = rgb;
+  const c = document.createElement("canvas");
+  c.width  = src.naturalWidth  || src.width;
+  c.height = src.naturalHeight || src.height;
+  const ctx = c.getContext("2d");
+  ctx.drawImage(src, 0, 0);
+  const img = ctx.getImageData(0, 0, c.width, c.height);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i+3] < 10) continue;
+    const pr = d[i], pg = d[i+1], pb = d[i+2];
+    const maxC = Math.max(pr, pg, pb);
+    const minC = Math.min(pr, pg, pb);
+    if (maxC > 40 && (maxC - minC) < 60) {
+      const lum = (pr + pg + pb) / (3 * 255);
+      d[i]   = (r * lum + .5) | 0;
+      d[i+1] = (g * lum + .5) | 0;
+      d[i+2] = (b * lum + .5) | 0;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+
+// ── Slider helpers ────────────────────────────────────────────────────────────
+function slVal(id) { return parseInt(document.getElementById(id).value, 10); }
+function slPct(id) { return parseFloat(document.getElementById(id).value) / 100; }
+
+function bindSlider(id, labelId, fmt) {
+  const el  = document.getElementById(id);
+  const lbl = document.getElementById(labelId);
+  const update = () => { lbl.textContent = fmt(el.value); composite(); };
+  el.addEventListener("input", update);
+  update();
+}
+
+// ── Composite ─────────────────────────────────────────────────────────────────
+// Layer order (front view):
+//   1. block (solid colour silhouette) — tinted with body colour
+//   2. car art (transparent PNG from images/) — drawn as-is
+//   3. graphic overlay — tinted with graphic colour
+//   4. detail sprite (outlines/trim) — drawn as-is
+//   5. wheels
+function composite() {
+  const isRear = viewMode === "rear";
+  if (!carData) return;
+  if (isRear && !rearImg) return;
+  if (!isRear && !carImg && !blockImg) return;
+
+  const mc  = document.getElementById("mainCanvas");
+  const ctx = mc.getContext("2d");
+  const cw  = mc.width, ch = mc.height;
+  ctx.clearRect(0, 0, cw, ch);
+
+  // Use car art image dimensions as reference for scaling (or rearImg for rear view)
+  const refImg = isRear ? rearImg : (carImg || blockImg);
+  const iw  = refImg.naturalWidth  || refImg.width  || 1;
+  const ih  = refImg.naturalHeight || refImg.height || 1;
+  const pad = 20;
+  const scale = Math.min((cw - pad*2) / iw, (ch - pad*2) / ih);
+  const dw  = iw * scale;
+  const dh  = ih * scale;
+  const cx  = (cw - dw) / 2;
+  const cy  = (ch - dh) / 2;
+
+  const bodyRgb = hexRgb(document.getElementById("c_body").value);
+
+  if (isRear) {
+    ctx.drawImage(tintCanvas(rearImg, bodyRgb), cx, cy, dw, dh);
+  } else {
+    // Helper to draw an image scaled/centered relative to the car's draw rect
+    function drawLayer(img, tintFn, tintArg) {
+      if (!img) return;
+      const iw2 = img.naturalWidth || img.width;
+      const ih2 = img.naturalHeight || img.height;
+      const s   = Math.min(dw / iw2, dh / ih2);
+      const lw  = iw2 * s, lh = ih2 * s;
+      const lx  = cx + (dw - lw) / 2;
+      const ly  = cy + (dh - lh) / 2;
+      const src = tintFn ? tintFn(img, tintArg) : img;
+      ctx.drawImage(src, lx, ly, lw, lh);
+    }
+
+    // Layer 1: block — solid colour silhouette, tinted
+    drawLayer(blockImg, tintCanvas, bodyRgb);
+
+    // Layer 2: car art — transparent PNG, drawn as-is
+    drawLayer(carImg, null, null);
+
+    // Layer 3: graphic overlay — tinted
+    const gIdx = parseInt(document.getElementById("graphicSel").value, 10);
+    if (gIdx > 0 && graphicImgs[gIdx] && graphicImgs[gIdx].naturalWidth) {
+      const gImg = graphicImgs[gIdx];
+      const gRgb = hexRgb(document.getElementById("c_graphic").value);
+      const gW   = gImg.naturalWidth, gH = gImg.naturalHeight;
+      const gscale = dw / gW;
+      const gdw = dw, gdh = gH * gscale;
+      const gcy = cy + (dh - gdh) / 2;
+      ctx.drawImage(tintGraphicCanvas(gImg, gRgb), cx, gcy, gdw, gdh);
+    }
+
+    // Layer 4: detail sprite — outlines/trim as-is
+    drawLayer(detailImg, null, null);
+
+    // Layer 5: wheels
+    if (whlF && whlR) {
+      const anchor = WHEEL_ANCHORS[carData.name] || DEFAULT_ANCHOR;
+      const [fxFrac, fyBot, rxFrac, ryBot, fhFrac, rhFrac] = anchor;
+      const wscale = slPct("wscale");
+      const whlRgb = hexRgb(document.getElementById("c_wheel").value);
+
+      const fH = fhFrac * dh * wscale, fW = fH * WF_ASPECT;
+      ctx.drawImage(tintWheelCanvas(whlF, whlRgb),
+        cx + fxFrac*dw - fW/2 + slVal("fwx"),
+        cy + fyBot *dh - fH   + slVal("fwy"), fW, fH);
+
+      const rH = rhFrac * dh * wscale, rW = rH * WR_ASPECT;
+      ctx.drawImage(tintWheelCanvas(whlR, whlRgb),
+        cx + rxFrac*dw - rW/2 + slVal("rwx"),
+        cy + ryBot *dh - rH   + slVal("rwy"), rW, rH);
+    }
+  }
+
+  document.getElementById("dlPngBtn").disabled = false;
+  document.getElementById("dlSvgBtn").disabled = false;
+}
+
+// ── Build ─────────────────────────────────────────────────────────────────────
+async function buildCar() {
+  const carSel = document.getElementById("carSel");
+  const car    = CARS.find(c => c.id === carSel.value);
+  if (!car) { setMsg("Select a car first", "warn"); return; }
+
+  const whlName = document.querySelector(".whl-thumb.selected")?.dataset.name;
+  const whl     = whlName ? WHEELS.find(w => w.name === whlName) : null;
+
+  setMsg("Loading…");
+  carData = car;
+
+  try {
+    const blockPromise  = car.block_path
+      ? loadImg(`/builder/assets/challenge/${car.block_path}`)
+      : Promise.resolve(null);
+    const carImgPromise = car.car_img
+      ? loadImg(`/builder/assets/challenge/${car.car_img}`)
+      : Promise.resolve(null);
+    const detailPromise = car.detail_path
+      ? loadImg(`/builder/assets/challenge/${car.detail_path}`)
+      : Promise.resolve(null);
+    const rearPromise   = car.racecar_path
+      ? loadImg(`/builder/assets/challenge/${car.racecar_path}`)
+      : Promise.resolve(null);
+    // graphic_paths[0]=frame1(blank), [1..5]=stripe/2stripe/lightning/sidestripes/flames
+    const gPromises = car.graphic_paths
+      ? car.graphic_paths.map(p => loadImg(`/builder/assets/challenge/${p}`).catch(() => null))
+      : [];
+    const whlPromises = whl
+      ? [loadImg(`/builder/assets/challenge/${whl.f_path}`),
+         loadImg(`/builder/assets/challenge/${whl.r_path}`)]
+      : [Promise.resolve(null), Promise.resolve(null)];
+
+    const [loadedBlock, loadedCarImg, loadedDetail, loadedRear, ...rest] = await Promise.all([
+      blockPromise, carImgPromise, detailPromise, rearPromise, ...gPromises, ...whlPromises,
+    ]);
+
+    blockImg    = loadedBlock;
+    carImg      = loadedCarImg;
+    detailImg   = loadedDetail;
+    rearImg     = loadedRear;
+    graphicImgs = rest.slice(0, gPromises.length);
+    [whlF, whlR] = rest.slice(gPromises.length);
+
+    composite();
+    setMsg("Done ✓", "ok");
+  } catch(e) {
+    console.error("buildCar error:", e);
+    setMsg("Error: " + e.message, "err");
+  }
+}
+
+// ── Download ──────────────────────────────────────────────────────────────────
+function triggerDownload(href, name) {
+  const a = Object.assign(document.createElement("a"), { href, download: name });
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(href); a.remove(); }, 2000);
+}
+
+function filename(ext) {
+  const car  = document.getElementById("carSel").value;
+  const clr  = document.getElementById("c_body").value.replace("#","");
+  const whl  = document.querySelector(".whl-thumb.selected")?.dataset.name || "stock";
+  const view = viewMode === "rear" ? "_rear" : "";
+  return `1320_${car}${view}_${whl}_${clr}.${ext}`;
+}
+
+function downloadPNG() {
+  document.getElementById("mainCanvas").toBlob(blob =>
+    triggerDownload(URL.createObjectURL(blob), filename("png"))
+  , "image/png");
+}
+
+function canvasToDataUrl(img, w, h, tintFn, rgb) {
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  const ctx = c.getContext("2d");
+  const tinted = tintFn ? tintFn(img, rgb) : (() => { ctx.drawImage(img, 0, 0); return c; })();
+  if (tintFn) {
+    ctx.drawImage(tinted, 0, 0, w, h);
+  }
+  return c.toDataURL("image/png");
+}
+
+function downloadSVG() {
+  if ((!carImg && !blockImg) || !carData) return;
+  const mc  = document.getElementById("mainCanvas");
+  const cw  = mc.width, ch = mc.height;
+  const isRear = viewMode === "rear";
+  const refI = isRear ? rearImg : (carImg || blockImg);
+  if (!refI) return;
+  const iw  = refI.naturalWidth || refI.width;
+  const ih  = refI.naturalHeight || refI.height;
+  const pad = 20;
+  const scale = Math.min((cw - pad*2) / iw, (ch - pad*2) / ih);
+  const dw  = iw * scale, dh = ih * scale;
+  const cx  = (cw - dw) / 2, cy = (ch - dh) / 2;
+
+  const bodyRgb = hexRgb(document.getElementById("c_body").value);
+  const layers  = [];
+
+  // Helper: render a layer image scaled/centered in the car rect
+  function svgLayer(img, tintFn, tintArg, label) {
+    if (!img) return;
+    const iw2 = img.naturalWidth || img.width;
+    const ih2 = img.naturalHeight || img.height;
+    const s   = Math.min(dw / iw2, dh / ih2);
+    const lw  = iw2 * s, lh = ih2 * s;
+    const lx  = cx + (dw - lw) / 2;
+    const ly  = cy + (dh - lh) / 2;
+    const c   = document.createElement("canvas"); c.width = lw; c.height = lh;
+    const src = tintFn ? tintFn(img, tintArg) : img;
+    c.getContext("2d").drawImage(src, 0, 0, lw, lh);
+    layers.push(`  <!-- ${label} -->\n  <image href="${c.toDataURL("image/png")}" x="${lx}" y="${ly}" width="${lw}" height="${lh}"/>`);
+  }
+
+  if (isRear && rearImg) {
+    svgLayer(rearImg, tintCanvas, bodyRgb, "rear view");
+  } else {
+    svgLayer(blockImg, tintCanvas, bodyRgb, "body colour");
+    svgLayer(carImg,   null,        null,    "car art");
+
+    const gIdx = parseInt(document.getElementById("graphicSel").value, 10);
+    if (gIdx > 0 && graphicImgs[gIdx]?.naturalWidth) {
+      const gImg = graphicImgs[gIdx];
+      const gRgb = hexRgb(document.getElementById("c_graphic").value);
+      const gW = gImg.naturalWidth, gH = gImg.naturalHeight;
+      const gscale = dw / gW;
+      const gdw = dw, gdh = gH * gscale;
+      const gcy = cy + (dh - gdh) / 2;
+      const gc = document.createElement("canvas"); gc.width=gdw; gc.height=gdh;
+      gc.getContext("2d").drawImage(tintGraphicCanvas(gImg, gRgb), 0, 0, gdw, gdh);
+      layers.push(`  <!-- graphic -->\n  <image href="${gc.toDataURL("image/png")}" x="${cx}" y="${gcy}" width="${gdw}" height="${gdh}"/>`);
+    }
+
+    svgLayer(detailImg, null, null, "detail/trim");
+
+    if (whlF && whlR) {
+      const anchor = WHEEL_ANCHORS[carData.name] || DEFAULT_ANCHOR;
+      const [fxFrac, fyBot, rxFrac, ryBot, fhFrac, rhFrac] = anchor;
+      const wscale = slPct("wscale");
+      const whlRgb = hexRgb(document.getElementById("c_wheel").value);
+      for (const [wimg, xFrac, yBot, hFrac, aspect, label] of [
+        [whlF, fxFrac, fyBot, fhFrac, WF_ASPECT, "front wheel"],
+        [whlR, rxFrac, ryBot, rhFrac, WR_ASPECT, "rear wheel"],
+      ]) {
+        const wH = hFrac * dh * wscale, wW = wH * aspect;
+        const wX = cx + xFrac*dw - wW/2 + slVal(label.startsWith("front") ? "fwx" : "rwx");
+        const wY = cy + yBot *dh - wH   + slVal(label.startsWith("front") ? "fwy" : "rwy");
+        const wc = document.createElement("canvas"); wc.width=wW; wc.height=wH;
+        wc.getContext("2d").drawImage(tintWheelCanvas(wimg, whlRgb), 0, 0, wW, wH);
+        layers.push(`  <!-- ${label} -->\n  <image href="${wc.toDataURL("image/png")}" x="${wX}" y="${wY}" width="${wW}" height="${wH}"/>`);
+      }
+    }
+  }
+
+  const car = document.getElementById("carSel").value;
+  const clr = document.getElementById("c_body").value;
+  const svg = [
+    `<?xml version="1.0" encoding="UTF-8"?>`,
+    `<!-- 1320 Challenge ${car} ${clr} — 0k.au/challenge -->`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${cw}" height="${ch}" viewBox="0 0 ${cw} ${ch}">`,
+    ...layers,
+    `</svg>`
+  ].join("\n");
+  const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+  triggerDownload(URL.createObjectURL(blob), filename("svg"));
+}
+
+function setMsg(msg, cls="") {
+  const el = document.getElementById("prog");
+  el.textContent = msg; el.className = "prog " + cls;
+}
+
+// ── View toggle ───────────────────────────────────────────────────────────────
+function setView(mode) {
+  viewMode = mode;
+  document.getElementById("viewFront").classList.toggle("active", mode === "front");
+  document.getElementById("viewRear").classList.toggle("active",  mode === "rear");
+  // Update preview thumbnail
+  updateCarPreview();
+  // Re-composite if built
+  if (carImg || blockImg) composite();
+}
+
+document.getElementById("viewFront").addEventListener("click", () => setView("front"));
+document.getElementById("viewRear").addEventListener("click",  () => setView("rear"));
+
+// ── Wheel thumbnail grid ──────────────────────────────────────────────────────
+function buildWheelGrid() {
+  const grid = document.getElementById("whlGrid");
+  grid.innerHTML = WHEELS.map(w =>
+    `<div class="whl-thumb" data-name="${w.name}" title="${w.name}">` +
+    `<img src="/builder/assets/challenge/${w.f_path}" alt="${w.name}" loading="lazy">` +
+    `<span>${w.name}</span></div>`
+  ).join("");
+
+  grid.querySelectorAll(".whl-thumb").forEach(el => {
+    el.addEventListener("click", () => {
+      grid.querySelectorAll(".whl-thumb").forEach(e => e.classList.remove("selected"));
+      el.classList.add("selected");
+      const clr = getWheelDefault(el.dataset.name);
+      document.getElementById("c_wheel").value = clr;
+      if (carImg || blockImg) buildCar();
+    });
+  });
+
+  const first = grid.querySelector(".whl-thumb");
+  if (first) first.classList.add("selected");
+}
+
+// ── Car preview on select ─────────────────────────────────────────────────────
+function updateCarPreview() {
+  const car = CARS.find(c => c.id === document.getElementById("carSel").value);
+  if (!car) return;
+  const prev = document.getElementById("carPreview");
+  if (viewMode === "rear" && car.racecar_path) {
+    prev.src = `/builder/assets/challenge/${car.racecar_path}`;
+  } else {
+    prev.src = `/builder/assets/challenge/${car.car_img || car.block_path}`;
+  }
+  prev.alt = car.name;
+}
+
+// ── Wheel colour defaults (per-design in localStorage) ───────────────────────
+const WHL_DEFAULT = "#aaaaaa";
+function whlKey(name) { return `1320_whl_${name}`; }
+function getWheelDefault(name) { return localStorage.getItem(whlKey(name)) || WHL_DEFAULT; }
+function saveWheelDefault(name, hex) { localStorage.setItem(whlKey(name), hex); }
+
+document.getElementById("c_wheel").addEventListener("input", function() {
+  const sel = document.querySelector(".whl-thumb.selected");
+  if (sel) saveWheelDefault(sel.dataset.name, this.value);
+  if (carImg || blockImg) composite();
+});
+
+document.getElementById("whlClrReset").addEventListener("click", () => {
+  const sel = document.querySelector(".whl-thumb.selected");
+  if (sel) localStorage.removeItem(whlKey(sel.dataset.name));
+  document.getElementById("c_wheel").value = WHL_DEFAULT;
+  if (carImg || blockImg) composite();
+});
+
+// ── Events ────────────────────────────────────────────────────────────────────
+document.getElementById("buildBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("buildBtn");
+  btn.disabled = true; btn.textContent = "⏳ Building…";
+  try { await buildCar(); }
+  catch(e) { setMsg("Error: " + e.message, "err"); console.error(e); }
+  btn.disabled = false; btn.textContent = "▶ Build Car";
+});
+
+document.getElementById("carSel").addEventListener("change", () => {
+  blockImg = carImg = detailImg = rearImg = whlF = whlR = null;
+  graphicImgs = [];
+  updateCarPreview();
+});
+document.getElementById("c_body").addEventListener("input",    () => { if (carImg || blockImg) composite(); });
+document.getElementById("c_graphic").addEventListener("input", () => { if (carImg || blockImg) composite(); });
+document.getElementById("graphicSel").addEventListener("change", () => { if (carImg || blockImg) composite(); });
+
+document.getElementById("dlPngBtn").addEventListener("click", downloadPNG);
+document.getElementById("dlSvgBtn").addEventListener("click", downloadSVG);
+
+// Sliders
+bindSlider("fwx",    "fwx_v",    v => v);
+bindSlider("fwy",    "fwy_v",    v => v);
+bindSlider("rwx",    "rwx_v",    v => v);
+bindSlider("rwy",    "rwy_v",    v => v);
+bindSlider("wscale", "wscale_v", v => v + "%");
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  try {
+    const [cars, wheels] = await Promise.all([
+      fetch("/builder/api/challenge/cars").then(r => r.json()),
+      fetch("/builder/api/challenge/wheels").then(r => r.json()),
+    ]);
+
+    CARS   = cars;
+    WHEELS = wheels;
+
+    const carSel = document.getElementById("carSel");
+    carSel.innerHTML = CARS.map(c =>
+      `<option value="${c.id}">${c.name}</option>`
+    ).join("");
+
+    buildWheelGrid();
+    updateCarPreview();
+
+    const firstWhl = document.querySelector(".whl-thumb");
+    if (firstWhl) {
+      document.getElementById("c_wheel").value = getWheelDefault(firstWhl.dataset.name);
+    }
+  } catch(e) {
+    setMsg("Init error: " + e.message, "err");
+    console.error("Init error:", e);
+  }
+}
+
+init();
+</script>
+</body>
+</html>

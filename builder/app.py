@@ -13,9 +13,10 @@ app = Flask(__name__)
 #   /legends/car/      ← packages, wheel, decals
 #   /legends/parts/    ← 14_*.swf wheels, 13_*.swf tires etc.
 BASE = Path(__file__).parent.parent
-CAR_DIR   = BASE / "decom" / "car"
-PARTS_DIR = BASE / "decom" / "parts"
-SAVE_DIR  = Path(__file__).parent / "saved"
+CAR_DIR       = BASE / "decom" / "car"
+PARTS_DIR     = BASE / "decom" / "parts"
+CHALLENGE_DIR = BASE / "decom" / "challenge"
+SAVE_DIR      = Path(__file__).parent / "saved"
 SAVE_DIR.mkdir(exist_ok=True)
 
 # Allow overriding paths via env (useful on RPi4 where decom/ may not exist)
@@ -48,6 +49,246 @@ def index():
 def wheels_export():
     from flask import make_response
     return _nocache(make_response(render_template("wheels_export.html")))
+
+@app.route(P + "/challenge")
+@app.route(P + "/challenge/")
+def challenge_index():
+    from flask import make_response
+    return _nocache(make_response(render_template("challenge.html")))
+
+@app.route(P + "/assets/challenge/<path:filename>")
+def challenge_asset(filename):
+    p = (CHALLENGE_DIR / filename).resolve()
+    if not p.exists() or CHALLENGE_DIR not in p.parents:
+        abort(404)
+    return send_file(p)
+
+@app.route(P + "/api/challenge/cars")
+def api_challenge_cars():
+    """Return list of car objects with layer paths for the challenge builder."""
+    sprites_dir = CHALLENGE_DIR / "sprites"
+
+    # Build full lookup: sprite_id (int) -> folder name
+    id_to_folder = {}
+    for d in sprites_dir.iterdir():
+        if not d.is_dir():
+            continue
+        parts = d.name.split("_")
+        if parts[0] == "DefineSprite" and len(parts) >= 2:
+            try:
+                id_to_folder[int(parts[1])] = d.name
+            except ValueError:
+                pass
+
+    def frame_count(folder_name):
+        return len(list((sprites_dir / folder_name).glob("*.png")))
+
+    # 6-frame unnamed sprites = graphic overlays
+    six_frame_ids = sorted(
+        sid for sid, folder in id_to_folder.items()
+        if len(folder.split("_")) == 2 and frame_count(folder) == 6
+    )
+
+    # 2-frame unnamed sprites = composed car body (frame1=no graphic, frame2=with graphic)
+    two_frame_ids = sorted(
+        sid for sid, folder in id_to_folder.items()
+        if len(folder.split("_")) == 2 and frame_count(folder) == 2
+    )
+
+    # racecar sprite lookup: car_name_lower -> path
+    racecar_lookup = {}
+    for d in sprites_dir.iterdir():
+        if not d.is_dir() or "racecar" not in d.name.lower():
+            continue
+        png = d / "1.png"
+        if not png.exists():
+            continue
+        parts = d.name.split("_")
+        rc_idx = next((i for i, p in enumerate(parts) if p.lower() == "racecar"), None)
+        if rc_idx is None:
+            continue
+        racecar_lookup["_".join(parts[2:rc_idx]).lower()] = f"sprites/{d.name}/1.png"
+
+    # --- Color block sprites: large solid-colour unnamed single-frame sprites ---
+    import statistics as _stats
+    try:
+        from PIL import Image as _PIL
+        _HAS_PIL = True
+    except ImportError:
+        _HAS_PIL = False
+
+    color_block_ids = []
+    if _HAS_PIL:
+        for sid, fname in id_to_folder.items():
+            if len(fname.split("_")) != 2:
+                continue
+            if frame_count(fname) != 1:
+                continue
+            p = sprites_dir / fname / "1.png"
+            if not p.exists():
+                continue
+            with _PIL.open(p) as img:
+                bw, bh = img.size
+            if bw < 200 or bh < 60:
+                continue
+            with _PIL.open(p) as img:
+                px = [pix for pix in img.convert("RGBA").getdata() if pix[3] > 10]
+            if len(px) < 50:
+                continue
+            sample = px[:300]
+            try:
+                rv = _stats.stdev(pix[0] for pix in sample)
+                gv = _stats.stdev(pix[1] for pix in sample)
+                bv = _stats.stdev(pix[2] for pix in sample)
+            except Exception:
+                continue
+            if rv < 30 and gv < 30 and bv < 30:
+                color_block_ids.append(sid)
+    color_block_ids.sort()
+
+    # --- Image file lookup: id -> filename ---
+    images_dir = CHALLENGE_DIR / "images"
+    img_files = {}
+    for f in images_dir.iterdir():
+        if f.stem.isdigit():
+            img_files[int(f.stem)] = f.name
+
+    cars = []
+    for d in sorted(sprites_dir.iterdir()):
+        n = d.name
+        if not d.is_dir():
+            continue
+        nl = n.lower()
+        if "frontquarter_menu" not in nl or "wing" in nl:
+            continue
+        png = d / "1.png"
+        if not png.exists():
+            continue
+        parts = n.split("_")
+        try:
+            menu_id = int(parts[1])
+        except (IndexError, ValueError):
+            continue
+        fq_idx = next((i for i, p in enumerate(parts) if p.lower() == "frontquarter"), None)
+        if fq_idx is None:
+            continue
+        car_name = "_".join(parts[2:fq_idx])
+
+        try:
+            from PIL import Image as _PilImage
+            with _PilImage.open(png) as img:
+                w, h = img.size
+        except Exception:
+            w, h = 0, 0
+
+        # --- Color block: nearest large solid sprite before this menu ---
+        block_cands = [b for b in color_block_ids if b < menu_id]
+        block_path = None
+        if block_cands:
+            bid = max(block_cands)
+            bp = sprites_dir / f"DefineSprite_{bid}" / "1.png"
+            if bp.exists():
+                block_path = f"sprites/DefineSprite_{bid}/1.png"
+
+        # --- Car image from images/ and detail sprite ---
+        car_img_path = None
+        detail_path = None
+        for sid, fname in id_to_folder.items():
+            fl = fname.lower()
+            if car_name.lower() in fl and "frontquarter_detail" in fl:
+                dp = sprites_dir / fname / "1.png"
+                if dp.exists():
+                    detail_path = f"sprites/{fname}/1.png"
+                    # Match image file: closest ID to detail sprite, most similar size
+                    try:
+                        from PIL import Image as _PilImage
+                        with _PilImage.open(dp) as di:
+                            dw2, dh2 = di.size
+                        best_score, best_iid = 9999.0, None
+                        for iid, fname2 in img_files.items():
+                            if abs(iid - sid) > 80:
+                                continue
+                            ip = images_dir / fname2
+                            with _PilImage.open(ip) as ii:
+                                iw, ih = ii.size
+                            if iw < 100:
+                                continue
+                            score = (abs(iw - dw2) / max(dw2, 1)
+                                     + abs(ih - dh2) / max(dh2, 1)
+                                     + abs(iid - sid) / 200.0)
+                            if score < best_score:
+                                best_score, best_iid = score, iid
+                        if best_iid is not None:
+                            car_img_path = f"images/{img_files[best_iid]}"
+                    except Exception:
+                        pass
+                break
+
+        # --- Graphic overlay paths (6-frame unnamed sprite) ---
+        graphic_paths = None
+        cands6 = [s for s in six_frame_ids if s < menu_id and (menu_id - s) < 60]
+        if cands6:
+            gfolder = id_to_folder.get(cands6[-1])
+            if gfolder:
+                graphic_paths = [f"sprites/{gfolder}/{i}.png" for i in range(1, 7)]
+
+        cars.append({
+            "id": str(menu_id),
+            "name": car_name,
+            "w": w, "h": h,
+            "block_path":  block_path,     # solid colour silhouette → tint for body colour
+            "car_img":     car_img_path,   # transparent car art from images/ → draw as-is
+            "detail_path": detail_path,    # extra outlines/trim → draw as-is on top
+            "graphic_paths": graphic_paths,
+            "racecar_path": racecar_lookup.get(car_name.lower()),
+        })
+    return jsonify(cars)
+
+@app.route(P + "/api/challenge/wheels")
+def api_challenge_wheels():
+    """Return list of {name, f_path, r_path, fw, fh, rw, rh} for every wheel design."""
+    sprites_dir = CHALLENGE_DIR / "sprites"
+    seen = {}
+    for d in sorted(sprites_dir.iterdir()):
+        if not d.is_dir():
+            continue
+        n = d.name
+        # Match DefineSprite_{id}_{WheelName}_F_100 or _R_100
+        if "_F_100" not in n and "_R_100" not in n:
+            continue
+        png = d / "1.png"
+        if not png.exists():
+            continue
+        # Extract wheel name (between id and _F_100/_R_100)
+        parts = n.split("_")
+        # find F/R index
+        try:
+            fr_idx = next(i for i, p in enumerate(parts) if p in ("F", "R"))
+        except StopIteration:
+            continue
+        wheel_name = "_".join(parts[2:fr_idx])
+        side = parts[fr_idx]
+        try:
+            from PIL import Image as _PilImage
+            with _PilImage.open(png) as img:
+                w, h = img.size
+        except Exception:
+            w, h = 0, 0
+        if wheel_name not in seen:
+            seen[wheel_name] = {"name": wheel_name, "f_path": None, "r_path": None,
+                                "fw": 0, "fh": 0, "rw": 0, "rh": 0}
+        if side == "F":
+            seen[wheel_name]["f_path"] = f"sprites/{d.name}/1.png"
+            seen[wheel_name]["fw"] = w
+            seen[wheel_name]["fh"] = h
+        else:
+            seen[wheel_name]["r_path"] = f"sprites/{d.name}/1.png"
+            seen[wheel_name]["rw"] = w
+            seen[wheel_name]["rh"] = h
+    # Only return wheels that have both F and R
+    wheels = [v for v in seen.values() if v["f_path"] and v["r_path"]]
+    wheels.sort(key=lambda x: x["name"])
+    return jsonify(wheels)
 
 
 # ── Static asset proxies (SWF files) ────────────────────────────────────────

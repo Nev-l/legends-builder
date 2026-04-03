@@ -88,7 +88,7 @@ class Recipe(Base):
     title           = Column(String(300), nullable=False)
     slug            = Column(String(350), unique=True, nullable=False, index=True)
     description     = Column(Text)
-    source          = Column(Enum(RecipeSource), nullable=False, default=RecipeSource.ugc)
+    source          = Column(String(20), nullable=False, default="ugc")
     source_url      = Column(String(1000))           # original URL for scraped recipes
     forked_from_id  = Column(BigInteger, ForeignKey("recipes.id"), nullable=True)
     author_id       = Column(BigInteger, ForeignKey("users.id"), nullable=True)
@@ -221,7 +221,7 @@ class MealPlanItem(Base):
     plan_id     = Column(BigInteger, ForeignKey("meal_plans.id", ondelete="CASCADE"), nullable=False)
     recipe_id   = Column(BigInteger, ForeignKey("recipes.id"), nullable=False)
     day_of_week = Column(SmallInteger, nullable=False)   # 0=Mon … 6=Sun
-    slot        = Column(Enum(MealSlot), nullable=False)
+    slot        = Column(String(20), nullable=False)
     servings    = Column(SmallInteger, default=4)
     is_leftover = Column(Boolean, default=False)
     is_batch    = Column(Boolean, default=False)

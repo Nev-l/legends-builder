@@ -11,7 +11,7 @@ import re, unicodedata
 
 from app.core.database import get_db
 from app.core.security import get_current_user_id, get_optional_user_id
-from app.models.models import Recipe, RecipeIngredient, RecipeStep, Ingredient, Rating, RecipeSource
+from app.models.models import Recipe, RecipeIngredient, RecipeStep, Ingredient, Rating
 from app.services.scraper import scrape_recipe_url
 
 router = APIRouter(prefix="/recipes", tags=["recipes"])
@@ -184,7 +184,7 @@ async def create_recipe(
         cook_minutes=body.cook_minutes,
         servings=body.servings,
         image_url=body.image_url,
-        source=RecipeSource.ugc,
+        source="ugc",
         author_id=user_id,
     )
     db.add(recipe)
@@ -219,7 +219,7 @@ async def scrape_recipe(
         title=data["title"],
         slug=slug,
         description=data.get("description"),
-        source=RecipeSource.scraped,
+        source="scraped",
         source_url=body.url,
         image_url=data.get("image"),
         prep_minutes=data.get("prep_minutes"),
@@ -262,7 +262,7 @@ async def fork_recipe(
         title=new_title,
         slug=new_slug,
         description=body.description or original.description,
-        source=RecipeSource.forked,
+        source="forked",
         forked_from_id=original.id,
         image_url=original.image_url,
         prep_minutes=original.prep_minutes,

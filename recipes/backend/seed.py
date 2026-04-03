@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 os.chdir(os.path.dirname(__file__))
 
 from app.core.database import AsyncSessionLocal
-from app.models.models import Recipe, RecipeIngredient, RecipeStep, Ingredient, RecipeSource
+from app.models.models import Recipe, RecipeIngredient, RecipeStep, Ingredient
 from sqlalchemy import select
 
 
@@ -24,7 +24,7 @@ RECIPES = [
         "cook_minutes": 20,
         "servings": 4,
         "diet_tags": [],
-        "source": RecipeSource.ugc,
+        "source": "ugc",
         "ingredients": [
             ("spaghetti", 400, "g"),
             ("guanciale or pancetta", 150, "g"),
@@ -53,7 +53,7 @@ RECIPES = [
         "cook_minutes": 40,
         "servings": 4,
         "diet_tags": [],
-        "source": RecipeSource.ugc,
+        "source": "ugc",
         "ingredients": [
             ("chicken thighs", 800, "g"),
             ("plain yoghurt", 200, "g"),
@@ -88,7 +88,7 @@ RECIPES = [
         "cook_minutes": 10,
         "servings": 2,
         "diet_tags": ["vegetarian"],
-        "source": RecipeSource.ugc,
+        "source": "ugc",
         "ingredients": [
             ("sourdough bread", 2, "slices"),
             ("ripe avocados", 2, None),
@@ -115,7 +115,7 @@ RECIPES = [
         "cook_minutes": 25,
         "servings": 4,
         "diet_tags": [],
-        "source": RecipeSource.ugc,
+        "source": "ugc",
         "ingredients": [
             ("chicken breast or tofu", 600, "g"),
             ("green curry paste", 3, "tbsp"),
@@ -146,7 +146,7 @@ RECIPES = [
         "cook_minutes": 12,
         "servings": 4,
         "diet_tags": ["vegetarian"],
-        "source": RecipeSource.ugc,
+        "source": "ugc",
         "ingredients": [
             ("dark chocolate", 200, "g"),
             ("butter", 150, "g"),
@@ -176,7 +176,7 @@ RECIPES = [
         "cook_minutes": 25,
         "servings": 2,
         "diet_tags": ["vegetarian", "gluten_free"],
-        "source": RecipeSource.ugc,
+        "source": "ugc",
         "ingredients": [
             ("eggs", 4, None),
             ("crushed tomatoes", 400, "g"),
@@ -207,7 +207,7 @@ RECIPES = [
         "cook_minutes": 15,
         "servings": 4,
         "diet_tags": [],
-        "source": RecipeSource.ugc,
+        "source": "ugc",
         "ingredients": [
             ("ground beef", 500, "g"),
             ("corn tortillas", 8, None),
@@ -238,7 +238,7 @@ RECIPES = [
         "cook_minutes": 15,
         "servings": 2,
         "diet_tags": ["vegetarian", "gluten_free"],
-        "source": RecipeSource.ugc,
+        "source": "ugc",
         "ingredients": [
             ("ripe bananas", 2, None),
             ("eggs", 2, None),
@@ -264,7 +264,7 @@ RECIPES = [
         "cook_minutes": 90,
         "servings": 4,
         "diet_tags": ["gluten_free"],
-        "source": RecipeSource.ugc,
+        "source": "ugc",
         "ingredients": [
             ("whole chicken", 1.8, "kg"),
             ("garlic", 6, "cloves"),
@@ -294,7 +294,7 @@ RECIPES = [
         "cook_minutes": 35,
         "servings": 4,
         "diet_tags": ["vegetarian", "gluten_free"],
-        "source": RecipeSource.ugc,
+        "source": "ugc",
         "ingredients": [
             ("arborio rice", 320, "g"),
             ("mixed mushrooms", 400, "g"),

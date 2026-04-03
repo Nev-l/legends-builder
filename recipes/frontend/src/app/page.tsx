@@ -37,6 +37,7 @@ interface Step {
 }
 
 interface RecipeDetail extends Recipe {
+  author_id: number | null;
   source_url: string | null;
   ingredients: Ingredient[];
   steps: Step[];

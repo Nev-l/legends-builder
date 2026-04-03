@@ -122,7 +122,7 @@ export default function PlannerPage() {
                             {items.map((item) => (
                               <a
                                 key={item.id}
-                                href={`/${item.recipe.slug}`}
+                                href={`/recipes/${item.recipe.slug}`}
                                 className="mb-1 flex items-center gap-1 rounded bg-gray-800 p-1 text-xs hover:bg-gray-700"
                               >
                                 {item.recipe.image_url ? (

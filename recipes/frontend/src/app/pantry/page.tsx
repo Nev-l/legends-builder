@@ -180,7 +180,7 @@ export default function PantryPage() {
               {wizardResults.map((r) => (
                 <li key={r.slug}>
                   <a
-                    href={`/${r.slug}`}
+                    href={`/recipes/${r.slug}`}
                     className="flex items-center justify-between rounded-xl border border-gray-800 bg-gray-900 px-4 py-3 text-sm hover:border-brand-500"
                   >
                     <span className="font-medium">{r.title}</span>

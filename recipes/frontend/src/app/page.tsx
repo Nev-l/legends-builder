@@ -123,7 +123,7 @@ function RecipeCard({ recipe: r }: { recipe: Recipe }) {
   const mins = (r.prep_minutes ?? 0) + (r.cook_minutes ?? 0);
   return (
     <a
-      href={`/${r.slug}`}
+      href={`/recipes/${r.slug}`}
       className="group flex flex-col overflow-hidden rounded-xl border border-gray-800 bg-gray-900 transition hover:border-brand-500"
     >
       {r.image_url ? (
@@ -188,7 +188,7 @@ function RecipeDetailView({ slug }: { slug: string }) {
     if (!recipe) return;
     try {
       const forked = await api.post<RecipeDetail>(`/recipes/${recipe.slug}/fork`, {});
-      window.location.href = `/${forked.slug}`;
+      window.location.href = `/recipes/${forked.slug}`;
     } catch (e: any) {
       alert(e.message);
     }
@@ -201,7 +201,7 @@ function RecipeDetailView({ slug }: { slug: string }) {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <a href="/" className="mb-4 inline-block text-sm text-gray-500 hover:text-white">← Back</a>
+      <a href="/recipes" className="mb-4 inline-block text-sm text-gray-500 hover:text-white">← Back</a>
 
       {recipe.image_url ? (
         <img src={recipe.image_url} alt={recipe.title} className="mb-6 h-64 w-full rounded-xl object-cover" />

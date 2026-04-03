@@ -18,7 +18,7 @@ function LoginInner() {
     const token = params.get("token");
     if (token) {
       localStorage.setItem("rh_token", token);
-      router.push("/recipes");
+      router.push("/");
     }
   }, [params, router]);
 
@@ -33,7 +33,7 @@ function LoginInner() {
         : { email, password, username };
       const res = await api.post<{ access_token: string }>(path, body);
       localStorage.setItem("rh_token", res.access_token);
-      router.push("/recipes");
+      router.push("/");
     } catch (e: any) {
       setError(e.message ?? "Something went wrong");
     } finally {

@@ -95,6 +95,12 @@ async def save_recipe(db, data: dict, source_url: str) -> bool:
     if not title or len(title) < 3:
         return False
 
+    # Must have actual recipe content
+    ingredients = data.get("ingredients", [])
+    steps = data.get("steps", [])
+    if len(ingredients) < 2 and len(steps) < 2:
+        return False
+
     slug = slugify(title)
     if not slug:
         return False
@@ -125,9 +131,16 @@ async def save_recipe(db, data: dict, source_url: str) -> bool:
             continue
         ing = await db.scalar(select(Ingredient).where(Ingredient.name == name))
         if not ing:
-            ing = Ingredient(name=name, canonical=name)
-            db.add(ing)
-            await db.flush()
+            try:
+                ing = Ingredient(name=name, canonical=name)
+                db.add(ing)
+                await db.flush()
+            except Exception:
+                await db.rollback()
+                # Another worker inserted it — fetch it
+                ing = await db.scalar(select(Ingredient).where(Ingredient.name == name))
+                if not ing:
+                    continue
         db.add(RecipeIngredient(
             recipe_id=recipe.id,
             ingredient_id=ing.id,

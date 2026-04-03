@@ -46,6 +46,10 @@ async def signup(body: SignupRequest, db: AsyncSession = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=409, detail="Email already registered")
 
+    username_taken = await db.scalar(select(User).where(User.username == body.username.lower()))
+    if username_taken:
+        raise HTTPException(status_code=409, detail="Username already taken")
+
     user = User(
         email=body.email,
         username=body.username.lower(),
@@ -54,6 +58,7 @@ async def signup(body: SignupRequest, db: AsyncSession = Depends(get_db)):
     )
     db.add(user)
     await db.flush()
+    await db.commit()
     return TokenResponse(
         access_token=create_access_token(user.id),
         user_id=user.id,
@@ -123,7 +128,7 @@ async def google_callback(code: str, db: AsyncSession = Depends(get_db)):
         )
         db.add(user)
         await db.flush()
+        await db.commit()
 
     token = create_access_token(user.id)
-    # Redirect to frontend with token in fragment (SPA handles it)
     return RedirectResponse(f"/recipes?token={token}")

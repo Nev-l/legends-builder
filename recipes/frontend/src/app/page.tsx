@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import useSWR from "swr";
 import { api } from "@/lib/api";
@@ -45,6 +45,16 @@ interface RecipeDetail extends Recipe {
 const SORTS = ["trending", "newest", "top"] as const;
 
 export default function Home() {
+  // Pick up Google OAuth token redirect: /recipes?token=...
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("token");
+    if (token) {
+      localStorage.setItem("rh_token", token);
+      window.history.replaceState({}, "", "/recipes");
+    }
+  }, []);
+
   // SPA routing: if the path is /recipes/<slug>, show detail view
   const pathname = usePathname();
   // basePath is /recipes, so pathname from usePathname() is relative to that

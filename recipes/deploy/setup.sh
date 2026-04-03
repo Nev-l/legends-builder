@@ -30,7 +30,7 @@ venv/bin/alembic upgrade head
 
 echo "=== 6. Create upload directory ==="
 mkdir -p "$PROJ/uploads"
-mkdir -p "$PROJ/static"   # Next.js build output goes here
+mkdir -p "$BACKEND/static"   # Next.js build output goes here
 
 echo "=== 7. Install systemd service ==="
 sudo cp "$PROJ/deploy/recipes.service" /etc/systemd/system/recipes.service

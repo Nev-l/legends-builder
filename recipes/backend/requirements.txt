@@ -29,4 +29,5 @@ Pillow==10.4.0
 
 # Config
 pydantic-settings==2.5.2
+pydantic[email]
 python-dotenv==1.0.1

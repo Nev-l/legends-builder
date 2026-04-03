@@ -1,0 +1,19 @@
+[Unit]
+Description=RecipeHub API
+After=network.target postgresql.service
+
+[Service]
+User=q
+WorkingDirectory=/home/q/legends/recipes/backend
+EnvironmentFile=/home/q/legends/recipes/backend/.env
+ExecStart=/home/q/legends/recipes/backend/venv/bin/gunicorn \
+    --workers 2 \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --bind 127.0.0.1:5002 \
+    --timeout 120 \
+    app.main:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -253,16 +253,101 @@ function RecipeCard({ recipe: r }: { recipe: Recipe }) {
 
 // ── Recipe detail ────────────────────────────────────────────────────────────
 
+const ALL_DIET_TAGS = ["gluten_free","dairy_free","vegan","vegetarian","high_protein","low_carb","nut_free","keto","carnivore","paleo"];
+
 function RecipeDetailView({ slug }: { slug: string }) {
   const [servings, setServings] = useState<number | null>(null);
   const [voting, setVoting] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  // Edit form state
+  const [editTitle, setEditTitle]       = useState("");
+  const [editDesc, setEditDesc]         = useState("");
+  const [editImage, setEditImage]       = useState("");
+  const [editPrep, setEditPrep]         = useState("");
+  const [editCook, setEditCook]         = useState("");
+  const [editServings, setEditServings] = useState("");
+  const [editDiets, setEditDiets]       = useState<string[]>([]);
+  const [editIngredients, setEditIngredients] = useState("");
+  const [editSteps, setEditSteps]       = useState("");
 
   const { data: recipe, mutate, isLoading } = useSWR<RecipeDetail>(
     `/recipes/${slug}`,
     (url: string) => api.get<RecipeDetail>(url)
   );
 
-  const scale = recipe ? (servings ?? recipe.servings) / recipe.servings : 1;
+  const userId = typeof window !== "undefined" ? getUserId() : null;
+  const isAdmin = userId === 1;
+  const isOwner = recipe ? (isAdmin || recipe.author_id === userId) : false;
+
+  function getUserId(): number | null {
+    const token = localStorage.getItem("rh_token");
+    if (!token) return null;
+    try {
+      const p = JSON.parse(atob(token.split(".")[1]));
+      return parseInt(p.sub);
+    } catch { return null; }
+  }
+
+  function startEdit() {
+    if (!recipe) return;
+    setEditTitle(recipe.title);
+    setEditDesc(recipe.description ?? "");
+    setEditImage(recipe.image_url ?? "");
+    setEditPrep(recipe.prep_minutes?.toString() ?? "");
+    setEditCook(recipe.cook_minutes?.toString() ?? "");
+    setEditServings(recipe.servings.toString());
+    setEditDiets(recipe.diet_tags ?? []);
+    setEditIngredients(recipe.ingredients.map(i =>
+      `${i.quantity != null ? i.quantity : ""}${i.unit ? " " + i.unit : ""} ${i.name}${i.note ? ", " + i.note : ""}`.trim()
+    ).join("\n"));
+    setEditSteps(recipe.steps.map(s => s.body).join("\n\n"));
+    setEditing(true);
+  }
+
+  async function saveEdit() {
+    if (!recipe) return;
+    setSaving(true);
+    try {
+      const ingredients = editIngredients.split("\n").filter(Boolean).map(line => ({ name: line.trim() }));
+      const steps = editSteps.split(/\n\n+/).filter(Boolean).map(s => ({ body: s.trim() }));
+      const updated = await api.put<RecipeDetail>(`/recipes/${recipe.slug}`, {
+        title:       editTitle,
+        description: editDesc || null,
+        image_url:   editImage || null,
+        prep_minutes: editPrep ? parseInt(editPrep) : null,
+        cook_minutes: editCook ? parseInt(editCook) : null,
+        servings:    parseInt(editServings) || 4,
+        diet_tags:   editDiets,
+        ingredients,
+        steps,
+      });
+      await mutate(updated as any, false);
+      setEditing(false);
+      // If slug changed, navigate to new URL
+      if ((updated as any).slug !== recipe.slug) {
+        window.location.href = `/recipes/${(updated as any).slug}`;
+      }
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteRecipe() {
+    if (!recipe || !confirm(`Delete "${recipe.title}"? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/recipes/${recipe.slug}`);
+      window.location.href = "/recipes";
+    } catch (e: any) {
+      alert(e.message);
+      setDeleting(false);
+    }
+  }
 
   async function vote(value: 1 | -1) {
     if (!recipe || voting) return;
@@ -270,28 +355,111 @@ function RecipeDetailView({ slug }: { slug: string }) {
     try {
       await api.post(`/recipes/${recipe.slug}/rate`, { value });
       mutate();
-    } catch {
-      // ignore
-    } finally {
-      setVoting(false);
-    }
+    } catch { } finally { setVoting(false); }
   }
 
   async function fork() {
     if (!recipe) return;
+    if (!localStorage.getItem("rh_token")) {
+      alert("Sign in to fork recipes.");
+      return;
+    }
     try {
       const forked = await api.post<RecipeDetail>(`/recipes/${recipe.slug}/fork`, {});
-      window.location.href = `/recipes/${forked.slug}`;
-    } catch (e: any) {
-      alert(e.message);
-    }
+      window.location.href = `/recipes/${(forked as any).slug}`;
+    } catch (e: any) { alert(e.message); }
   }
 
   if (isLoading) return <p className="py-20 text-center text-gray-500">Loading…</p>;
-  if (!recipe) return <p className="py-20 text-center text-gray-500">Recipe not found.</p>;
+  if (!recipe)   return <p className="py-20 text-center text-gray-500">Recipe not found.</p>;
 
+  const scale = (servings ?? recipe.servings) / recipe.servings;
   const totalMins = (recipe.prep_minutes ?? 0) + (recipe.cook_minutes ?? 0);
 
+  // ── Edit mode ──────────────────────────────────────────────────────────────
+  if (editing) {
+    return (
+      <div className="mx-auto max-w-3xl">
+        <div className="mb-6 flex items-center justify-between">
+          <h1 className="text-2xl font-extrabold">Edit Recipe</h1>
+          <button onClick={() => setEditing(false)} className="text-sm text-gray-500 hover:text-white">✕ Cancel</button>
+        </div>
+        <div className="flex flex-col gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-400">Title</label>
+              <input value={editTitle} onChange={e => setEditTitle(e.target.value)}
+                className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-400">Image URL</label>
+              <input value={editImage} onChange={e => setEditImage(e.target.value)}
+                className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-400">Prep (mins)</label>
+              <input type="number" value={editPrep} onChange={e => setEditPrep(e.target.value)}
+                className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-400">Cook (mins)</label>
+              <input type="number" value={editCook} onChange={e => setEditCook(e.target.value)}
+                className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-400">Servings</label>
+              <input type="number" value={editServings} onChange={e => setEditServings(e.target.value)}
+                className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-400">Description</label>
+            <textarea rows={2} value={editDesc} onChange={e => setEditDesc(e.target.value)}
+              className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-xs text-gray-400">Dietary tags</label>
+            <div className="flex flex-wrap gap-2">
+              {ALL_DIET_TAGS.map(tag => (
+                <button key={tag} type="button"
+                  onClick={() => setEditDiets(d => d.includes(tag) ? d.filter(x => x !== tag) : [...d, tag])}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition ${editDiets.includes(tag) ? "bg-brand-500 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700"}`}>
+                  {tag.replace(/_/g, " ")}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-400">Ingredients (one per line)</label>
+            <textarea rows={8} value={editIngredients} onChange={e => setEditIngredients(e.target.value)}
+              className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-400">Steps (separate with a blank line)</label>
+            <textarea rows={10} value={editSteps} onChange={e => setEditSteps(e.target.value)}
+              className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button onClick={saveEdit} disabled={saving}
+              className="rounded-lg bg-brand-500 px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-600 disabled:opacity-50">
+              {saving ? "Saving…" : "Save changes"}
+            </button>
+            <button onClick={() => setEditing(false)}
+              className="rounded-lg bg-gray-800 px-6 py-2.5 text-sm hover:bg-gray-700">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── View mode ──────────────────────────────────────────────────────────────
   return (
     <div className="mx-auto max-w-3xl">
       <a href="/recipes" className="mb-4 inline-block text-sm text-gray-500 hover:text-white">← Back</a>
@@ -317,7 +485,7 @@ function RecipeDetailView({ slug }: { slug: string }) {
         </div>
         {recipe.diet_tags.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1.5">
-            {recipe.diet_tags.map((t) => (
+            {recipe.diet_tags.map(t => (
               <span key={t} className="rounded-full bg-gray-800 px-2.5 py-1 text-xs text-gray-300">
                 {t.replace(/_/g, " ")}
               </span>
@@ -333,9 +501,22 @@ function RecipeDetailView({ slug }: { slug: string }) {
         <button onClick={() => vote(-1)} disabled={voting} className="flex items-center gap-1.5 rounded-lg bg-gray-800 px-4 py-2 text-sm hover:bg-gray-700 disabled:opacity-50">
           👎 <span>{recipe.downvotes}</span>
         </button>
-        <button onClick={fork} className="rounded-lg bg-gray-800 px-4 py-2 text-sm hover:bg-gray-700">
-          🍴 Fork recipe
-        </button>
+        {localStorage.getItem("rh_token") && (
+          <button onClick={fork} className="rounded-lg bg-gray-800 px-4 py-2 text-sm hover:bg-gray-700">
+            🍴 Fork & edit
+          </button>
+        )}
+        {isOwner && (
+          <>
+            <button onClick={startEdit} className="rounded-lg bg-gray-800 px-4 py-2 text-sm hover:bg-gray-700">
+              ✏️ Edit
+            </button>
+            <button onClick={deleteRecipe} disabled={deleting}
+              className="rounded-lg bg-red-900/50 px-4 py-2 text-sm text-red-400 hover:bg-red-900 disabled:opacity-50">
+              {deleting ? "Deleting…" : "🗑 Delete"}
+            </button>
+          </>
+        )}
         <div className="ml-auto flex items-center gap-2 text-sm">
           <span className="text-gray-400">Servings:</span>
           <button onClick={() => setServings(Math.max(1, (servings ?? recipe.servings) - 1))} className="rounded bg-gray-800 px-2 py-1 hover:bg-gray-700">−</button>
@@ -348,7 +529,7 @@ function RecipeDetailView({ slug }: { slug: string }) {
         <section>
           <h2 className="mb-3 text-lg font-bold">Ingredients</h2>
           <ul className="space-y-2">
-            {recipe.ingredients.map((ing) => {
+            {recipe.ingredients.map(ing => {
               const qty = ing.quantity != null ? +(ing.quantity * scale).toFixed(2) : null;
               return (
                 <li key={ing.id} className="flex gap-2 text-sm">
@@ -361,11 +542,10 @@ function RecipeDetailView({ slug }: { slug: string }) {
             })}
           </ul>
         </section>
-
         <section>
           <h2 className="mb-3 text-lg font-bold">Method</h2>
           <ol className="space-y-5">
-            {recipe.steps.map((step) => (
+            {recipe.steps.map(step => (
               <li key={step.id} className="flex gap-3">
                 <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-500 text-xs font-bold text-white">
                   {step.position}

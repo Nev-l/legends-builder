@@ -51,6 +51,17 @@ class RecipeCreate(BaseModel):
 class RecipeScrapeRequest(BaseModel):
     url: str
 
+class RecipeUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    image_url: Optional[str] = None
+    prep_minutes: Optional[int] = None
+    cook_minutes: Optional[int] = None
+    servings: Optional[int] = None
+    diet_tags: Optional[list[str]] = None
+    ingredients: Optional[list[IngredientIn]] = None
+    steps: Optional[list[StepIn]] = None
+
 class RecipeForkRequest(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
@@ -286,6 +297,92 @@ async def fork_recipe(
     await db.commit()
     await db.refresh(fork)
     return fork
+
+
+@router.put("/{slug}", response_model=dict)
+async def update_recipe(
+    slug: str,
+    body: RecipeUpdate,
+    user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a recipe. Admin (user_id=1) can edit any recipe; others only their own."""
+    recipe = await db.scalar(
+        select(Recipe).where(Recipe.slug == slug)
+        .options(selectinload(Recipe.ingredients), selectinload(Recipe.steps))
+    )
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    if user_id != 1 and recipe.author_id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorised to edit this recipe")
+
+    if body.title is not None:
+        new_slug = slugify(body.title)
+        if new_slug != recipe.slug:
+            conflict = await db.scalar(select(Recipe).where(Recipe.slug == new_slug))
+            if conflict:
+                new_slug = f"{new_slug}-{recipe.id}"
+        recipe.title = body.title
+        recipe.slug  = new_slug
+    if body.description  is not None: recipe.description  = body.description
+    if body.image_url    is not None: recipe.image_url    = body.image_url
+    if body.prep_minutes is not None: recipe.prep_minutes = body.prep_minutes
+    if body.cook_minutes is not None: recipe.cook_minutes = body.cook_minutes
+    if body.servings     is not None: recipe.servings     = body.servings
+    if body.diet_tags    is not None: recipe.diet_tags    = body.diet_tags
+
+    if body.ingredients is not None:
+        for ri in recipe.ingredients:
+            await db.delete(ri)
+        await db.flush()
+        await _upsert_ingredients(recipe.id, body.ingredients, db)
+
+    if body.steps is not None:
+        for s in recipe.steps:
+            await db.delete(s)
+        await db.flush()
+        for i, step in enumerate(body.steps):
+            db.add(RecipeStep(recipe_id=recipe.id, position=i + 1, **step.model_dump()))
+
+    await db.commit()
+    await db.refresh(recipe)
+
+    # Return full detail so frontend can update without re-fetching
+    stmt = (
+        select(Recipe).where(Recipe.id == recipe.id)
+        .options(
+            selectinload(Recipe.ingredients).selectinload(RecipeIngredient.ingredient),
+            selectinload(Recipe.steps),
+        )
+    )
+    recipe = await db.scalar(stmt)
+    return {
+        "id": recipe.id, "title": recipe.title, "slug": recipe.slug,
+        "description": recipe.description, "source": recipe.source,
+        "source_url": recipe.source_url, "image_url": recipe.image_url,
+        "prep_minutes": recipe.prep_minutes, "cook_minutes": recipe.cook_minutes,
+        "servings": recipe.servings, "diet_tags": recipe.diet_tags or [],
+        "upvotes": recipe.upvotes, "downvotes": recipe.downvotes, "score": recipe.score,
+        "author_id": recipe.author_id,
+        "ingredients": [{"id": ri.id, "name": ri.ingredient.name, "quantity": ri.quantity, "unit": ri.unit, "note": ri.note, "position": ri.position} for ri in recipe.ingredients],
+        "steps": [{"id": s.id, "position": s.position, "body": s.body, "image_url": s.image_url, "timer_mins": s.timer_mins} for s in recipe.steps],
+    }
+
+
+@router.delete("/{slug}", status_code=204)
+async def delete_recipe(
+    slug: str,
+    user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a recipe. Admin (user_id=1) can delete any; others only their own."""
+    recipe = await db.scalar(select(Recipe).where(Recipe.slug == slug))
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    if user_id != 1 and recipe.author_id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorised")
+    await db.delete(recipe)
+    await db.commit()
 
 
 @router.get("/leftover-wizard/search")

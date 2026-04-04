@@ -260,11 +260,11 @@ async def recommend_meals(
         for tag in tags:
             q = q.where(Recipe.diet_tags.contains([tag]))
 
-    # Pick recipes within ±40% of the calorie target
+    # Pick recipes within ±40% of the calorie target, randomised
     low  = calorie_target * 0.6
     high = calorie_target * 1.4
     q = q.where(Recipe.calories >= low, Recipe.calories <= high)
-    q = q.order_by(func.abs(Recipe.calories - calorie_target)).limit(12)
+    q = q.order_by(func.random()).limit(12)
 
     rows = await db.execute(q)
     recipes = rows.scalars().all()

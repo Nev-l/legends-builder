@@ -152,7 +152,7 @@ export default function PlannerPage() {
     try {
       const perMeal = Math.round(calorieGoal / 3);
       const res = await api.get<RecipeResult[]>(
-        `/meal-planner/recommend?calorie_target=${perMeal}&slot=${recommendSlot}`
+        `/meal-planner/recommend?calorie_target=${perMeal}&slot=${recommendSlot}&_t=${Date.now()}`
       );
       setRecommendResults(res);
     } catch {

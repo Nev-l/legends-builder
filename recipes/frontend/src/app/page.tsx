@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import useSWR from "swr";
 import { api } from "@/lib/api";
@@ -95,9 +95,49 @@ function RecipeList() {
   const [page, setPage] = useState(0);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
+  // Autocomplete state
+  const [suggestions, setSuggestions] = useState<Recipe[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchBoxRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     setIsLoggedIn(!!localStorage.getItem("rh_token"));
   }, []);
+
+  // Close suggestions on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  // Live suggestions as user types
+  function handleInputChange(val: string) {
+    setQ(val);
+    if (!val.trim()) {
+      // Clear search → back to all recipes
+      setSearch("");
+      setPage(0);
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    if (suggestTimer.current) clearTimeout(suggestTimer.current);
+    suggestTimer.current = setTimeout(async () => {
+      try {
+        const res = await api.get<Recipe[]>(`/recipes?q=${encodeURIComponent(val.trim())}&limit=6&sort=trending`);
+        setSuggestions(Array.isArray(res) ? res : []);
+        setShowSuggestions(true);
+      } catch {
+        setSuggestions([]);
+      }
+    }, 250);
+  }
 
   // Reset to page 0 whenever filters change
   function changeFilter(fn: () => void) { fn(); setPage(0); }
@@ -108,10 +148,16 @@ function RecipeList() {
     (url: string) => api.get<Recipe[]>(url.replace("/recipes/api", ""))
   );
 
-  function handleSearch() {
-    if (!q.trim()) return;
-    setSearch(q.trim());
+  function commitSearch(term: string) {
+    setQ(term);
+    setSearch(term);
     setPage(0);
+    setShowSuggestions(false);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter") { if (q.trim()) commitSearch(q.trim()); }
+    if (e.key === "Escape") setShowSuggestions(false);
   }
 
   return (
@@ -121,25 +167,75 @@ function RecipeList() {
           Find your next favourite meal
         </h1>
         <p className="text-gray-400">
-          Search from {">"}5,000 recipes or create your own.
+          Search from 5,000+ recipes or create your own.
         </p>
       </section>
 
       <div className="mb-2 flex flex-col gap-3 sm:flex-row">
-        <input
-          className="flex-1 rounded-lg border border-gray-700 bg-gray-900 px-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500"
-          placeholder="Search recipes…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-        />
-        <button
-          onClick={handleSearch}
-          disabled={!q.trim()}
-          className="rounded-lg bg-brand-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-600 disabled:opacity-50 whitespace-nowrap"
-        >
-          Search
-        </button>
+        {/* Search box with dropdown */}
+        <div ref={searchBoxRef} className="relative flex-1">
+          <div className="flex">
+            <input
+              className="flex-1 rounded-l-lg border border-gray-700 bg-gray-900 px-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500"
+              placeholder="Search recipes…"
+              value={q}
+              onChange={(e) => handleInputChange(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+              autoComplete="off"
+            />
+            {q && (
+              <button
+                onClick={() => { setQ(""); setSearch(""); setPage(0); setSuggestions([]); setShowSuggestions(false); }}
+                className="border border-l-0 border-gray-700 bg-gray-900 px-3 text-gray-500 hover:text-white"
+                title="Clear"
+              >
+                ✕
+              </button>
+            )}
+            <button
+              onClick={() => q.trim() && commitSearch(q.trim())}
+              disabled={!q.trim()}
+              className="rounded-r-lg bg-brand-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-600 disabled:opacity-50 whitespace-nowrap"
+            >
+              Search
+            </button>
+          </div>
+
+          {/* Autocomplete dropdown */}
+          {showSuggestions && suggestions.length > 0 && (
+            <ul className="absolute left-0 right-0 top-full z-40 mt-1 overflow-hidden rounded-xl border border-gray-700 bg-gray-900 shadow-xl">
+              {suggestions.map((r) => (
+                <li key={r.id}>
+                  <button
+                    onMouseDown={(e) => { e.preventDefault(); commitSearch(r.title); window.location.href = `/recipes/${r.slug}`; }}
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-gray-800"
+                  >
+                    {r.image_url
+                      ? <img src={r.image_url} alt="" className="h-9 w-9 rounded-lg object-cover shrink-0" />
+                      : <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-800 text-lg">🍽️</span>
+                    }
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">{r.title}</div>
+                      {r.diet_tags.length > 0 && (
+                        <div className="text-xs text-gray-500">{r.diet_tags.slice(0, 2).map(t => t.replace(/_/g, " ")).join(" · ")}</div>
+                      )}
+                    </div>
+                  </button>
+                </li>
+              ))}
+              <li>
+                <button
+                  onMouseDown={(e) => { e.preventDefault(); commitSearch(q.trim()); }}
+                  className="flex w-full items-center gap-2 border-t border-gray-800 px-4 py-2.5 text-sm text-brand-400 hover:bg-gray-800"
+                >
+                  <span>🔍</span> See all results for "<span className="font-medium">{q}</span>"
+                </button>
+              </li>
+            </ul>
+          )}
+        </div>
+
         <div className="flex gap-2">
           {SORTS.map((s) => (
             <button

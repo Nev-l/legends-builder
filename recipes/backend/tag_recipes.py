@@ -259,7 +259,7 @@ def estimate_macros(raw_ingredients: list[str], servings: int) -> dict:
 async def run(dry_run: bool, batch_size: int):
     import os
     sys.path.insert(0, os.path.dirname(__file__))
-    from app.core.database import async_session_factory
+    from app.core.database import AsyncSessionLocal as async_session_factory
     from app.models.models import Recipe, RecipeIngredient, Ingredient
     from sqlalchemy import select, update
     from sqlalchemy.orm import selectinload

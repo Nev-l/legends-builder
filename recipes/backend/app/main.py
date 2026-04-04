@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 
 from app.core.config import settings
-from app.api.routes import auth, recipes, meal_planner, pantry
+from app.api.routes import auth, recipes, meal_planner, pantry, users
 
 
 STATIC_DIR = Path(__file__).parent.parent / "static"
@@ -44,6 +44,7 @@ app.include_router(auth.router,         prefix=settings.API_PREFIX)
 app.include_router(recipes.router,      prefix=settings.API_PREFIX)
 app.include_router(meal_planner.router, prefix=settings.API_PREFIX)
 app.include_router(pantry.router,       prefix=settings.API_PREFIX)
+app.include_router(users.router,        prefix=settings.API_PREFIX)
 
 
 # ── Health check ──────────────────────────────────────────────────────────────

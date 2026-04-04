@@ -38,6 +38,8 @@ interface Step {
 
 interface RecipeDetail extends Recipe {
   author_id: number | null;
+  author_username: string | null;
+  author_display_name: string | null;
   source_url: string | null;
   ingredients: Ingredient[];
   steps: Step[];
@@ -76,6 +78,9 @@ export default function Home() {
   // e.g. visiting /recipes/pasta → pathname = "/pasta"
   const slug = pathname && pathname !== "/" ? pathname.replace(/^\//, "").replace(/\/$/, "") : null;
 
+  if (slug && slug.startsWith("user/")) {
+    return <UserProfileView username={slug.slice(5)} />;
+  }
   if (slug && !["planner", "pantry", "login"].includes(slug)) {
     return <RecipeDetailView slug={slug} />;
   }
@@ -452,7 +457,183 @@ function CreateRecipeForm({ onClose, onCreated }: { onClose: () => void; onCreat
           </div>
         </form>
       </div>
+
+      {/* Print recipe card button */}
+      <div className="mt-6 flex justify-end">
+        <button
+          onClick={() => window.print()}
+          className="rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-400 hover:border-brand-500 hover:text-brand-400"
+        >
+          🖨️ Print recipe card
+        </button>
+      </div>
+
+      {/* Print-only recipe card */}
+      <div className="hidden print:block" id="recipe-print">
+        <style>{`
+          @media print {
+            body * { visibility: hidden; }
+            #recipe-print, #recipe-print * { visibility: visible; }
+            #recipe-print { position: absolute; top: 0; left: 0; width: 100%; font-family: Georgia, serif; color: #000; padding: 24px; }
+            .rp-header { border-bottom: 3px solid #e67e22; padding-bottom: 12px; margin-bottom: 16px; }
+            .rp-title { font-size: 28px; font-weight: 700; margin: 0 0 4px; }
+            .rp-meta { font-size: 12px; color: #666; margin: 0; }
+            .rp-tags { margin-top: 6px; }
+            .rp-tag { display: inline-block; background: #fff3e0; color: #e67e22; border: 1px solid #e67e22; border-radius: 20px; padding: 1px 8px; font-size: 10px; margin-right: 4px; text-transform: capitalize; }
+            .rp-image { width: 100%; max-height: 220px; object-fit: cover; border-radius: 8px; margin-bottom: 16px; }
+            .rp-desc { font-size: 13px; color: #444; margin-bottom: 16px; font-style: italic; }
+            .rp-cols { display: grid; grid-template-columns: 1fr 2fr; gap: 24px; }
+            .rp-section-title { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 2px solid #e67e22; padding-bottom: 4px; margin-bottom: 8px; }
+            .rp-ingr-list { list-style: none; padding: 0; margin: 0; font-size: 12px; }
+            .rp-ingr-list li { padding: 3px 0; border-bottom: 1px solid #eee; }
+            .rp-steps { padding: 0; margin: 0; font-size: 12px; }
+            .rp-step { display: flex; gap: 8px; margin-bottom: 10px; }
+            .rp-step-num { min-width: 22px; height: 22px; background: #e67e22; color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
+            .rp-footer { margin-top: 16px; border-top: 1px solid #ddd; padding-top: 8px; font-size: 10px; color: #999; display: flex; justify-content: space-between; }
+          }
+        `}</style>
+        <div className="rp-header">
+          <h1 className="rp-title">{recipe.title}</h1>
+          <p className="rp-meta">
+            {recipe.prep_minutes != null && `Prep: ${recipe.prep_minutes} min  `}
+            {recipe.cook_minutes != null && `Cook: ${recipe.cook_minutes} min  `}
+            Serves {recipe.servings}
+            {recipe.calories != null && `  ·  ${Math.round(recipe.calories)} kcal/serving`}
+          </p>
+          {recipe.diet_tags.length > 0 && (
+            <div className="rp-tags">
+              {recipe.diet_tags.map(t => <span key={t} className="rp-tag">{t.replace(/_/g, " ")}</span>)}
+            </div>
+          )}
+        </div>
+        {recipe.image_url && <img src={recipe.image_url} alt={recipe.title} className="rp-image" />}
+        {recipe.description && <p className="rp-desc">{recipe.description}</p>}
+        <div className="rp-cols">
+          <div>
+            <div className="rp-section-title">Ingredients</div>
+            <ul className="rp-ingr-list">
+              {recipe.ingredients.map((ing, i) => (
+                <li key={i}>
+                  {ing.quantity != null ? `${ing.quantity}${ing.unit ? ` ${ing.unit}` : ""} ` : ""}
+                  {ing.name}{ing.note ? `, ${ing.note}` : ""}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <div className="rp-section-title">Method</div>
+            <ol className="rp-steps">
+              {recipe.steps.map(step => (
+                <li key={step.id} className="rp-step">
+                  <span className="rp-step-num">{step.position}</span>
+                  <span>{step.body}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </div>
+        <div className="rp-footer">
+          <span>RecipeHub — 0k.au/recipes</span>
+          {recipe.author_username && <span>Recipe by {recipe.author_display_name || recipe.author_username}</span>}
+          {recipe.source_url && <span>Source: {recipe.source_url}</span>}
+        </div>
+      </div>
+
+      {/* Comments */}
+      <CommentsSection slug={recipe.slug} />
     </div>
+  );
+}
+
+// ── Comments ──────────────────────────────────────────────────────────────────
+
+interface Comment {
+  id: number;
+  body: string;
+  created_at: string;
+  user: { username: string; display_name: string; avatar_url: string | null };
+}
+
+function CommentsSection({ slug }: { slug: string }) {
+  const { data: comments, mutate } = useSWR<Comment[]>(
+    `/recipes/${slug}/comments`,
+    (url: string) => api.get<Comment[]>(url)
+  );
+  const [body, setBody] = useState("");
+  const [posting, setPosting] = useState(false);
+  const isLoggedIn = typeof window !== "undefined" && !!localStorage.getItem("rh_token");
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!body.trim()) return;
+    setPosting(true);
+    try {
+      await api.post(`/recipes/${slug}/comments`, { body: body.trim() });
+      setBody("");
+      mutate();
+    } catch (e: any) { alert(e.message); }
+    finally { setPosting(false); }
+  }
+
+  async function deleteComment(id: number) {
+    await api.delete(`/recipes/${slug}/comments/${id}`);
+    mutate();
+  }
+
+  const myUsername = typeof window !== "undefined" ? localStorage.getItem("rh_username") : null;
+  const isAdmin = typeof window !== "undefined" && (() => {
+    try { return parseInt(JSON.parse(atob(localStorage.getItem("rh_token")!.split(".")[1])).sub) === 1; } catch { return false; }
+  })();
+
+  return (
+    <section className="mt-12 border-t border-gray-800 pt-8">
+      <h2 className="mb-6 text-xl font-bold">Comments {comments?.length ? `(${comments.length})` : ""}</h2>
+      {isLoggedIn ? (
+        <form onSubmit={submit} className="mb-8 flex flex-col gap-2">
+          <textarea
+            rows={3}
+            value={body}
+            onChange={e => setBody(e.target.value)}
+            placeholder="Leave a comment…"
+            className="w-full rounded-xl border border-gray-700 bg-gray-900 px-4 py-3 text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+          <div className="flex justify-end">
+            <button type="submit" disabled={posting || !body.trim()}
+              className="rounded-lg bg-brand-500 px-5 py-2 text-sm font-semibold text-white hover:bg-brand-600 disabled:opacity-50">
+              {posting ? "Posting…" : "Post comment"}
+            </button>
+          </div>
+        </form>
+      ) : (
+        <p className="mb-6 text-sm text-gray-500">
+          <a href="/recipes/login" className="text-brand-400 hover:underline">Sign in</a> to leave a comment.
+        </p>
+      )}
+      <div className="space-y-5">
+        {comments?.map(c => (
+          <div key={c.id} className="flex gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-800 text-sm font-bold text-gray-300">
+              {c.user.display_name?.[0]?.toUpperCase() ?? "?"}
+            </div>
+            <div className="flex-1">
+              <div className="flex items-baseline gap-2">
+                <a href={`/recipes/user/${c.user.username}`} className="text-sm font-semibold hover:text-brand-400">
+                  {c.user.display_name || c.user.username}
+                </a>
+                <span className="text-xs text-gray-600">
+                  {new Date(c.created_at).toLocaleDateString()}
+                </span>
+                {(c.user.username === myUsername || isAdmin) && (
+                  <button onClick={() => deleteComment(c.id)} className="ml-auto text-xs text-gray-600 hover:text-red-400">✕</button>
+                )}
+              </div>
+              <p className="mt-1 text-sm text-gray-300">{c.body}</p>
+            </div>
+          </div>
+        ))}
+        {comments?.length === 0 && <p className="text-sm text-gray-600">No comments yet. Be the first!</p>}
+      </div>
+    </section>
   );
 }
 
@@ -727,6 +908,17 @@ function RecipeDetailView({ slug }: { slug: string }) {
 
       <div className="mb-6">
         <h1 className="mb-2 text-3xl font-extrabold">{recipe.title}</h1>
+        {recipe.author_username && (
+          <p className="mb-3 text-sm text-gray-500">
+            By{" "}
+            <a
+              href={`/recipes/user/${recipe.author_username}`}
+              className="font-medium text-brand-400 hover:underline"
+            >
+              {recipe.author_display_name || recipe.author_username}
+            </a>
+          </p>
+        )}
         {recipe.description && <p className="mb-4 text-gray-400">{recipe.description}</p>}
         <div className="flex flex-wrap items-center gap-4 text-sm text-gray-400">
           {recipe.prep_minutes != null && <span>Prep: <strong className="text-white">{recipe.prep_minutes} min</strong></span>}
@@ -813,6 +1005,108 @@ function RecipeDetailView({ slug }: { slug: string }) {
               </li>
             ))}
           </ol>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+// ── User Profile ─────────────────────────────────────────────────────────────
+
+interface UserProfile {
+  id: number;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+  joined: string | null;
+  recipe_count: number;
+  total_upvotes: number;
+  badges: { id: string; name: string; icon: string; desc: string }[];
+}
+
+function UserProfileView({ username }: { username: string }) {
+  const { data: profile, error } = useSWR<UserProfile>(
+    `/users/${username}`,
+    (url: string) => api.get<UserProfile>(url)
+  );
+  const { data: userRecipes } = useSWR<Recipe[]>(
+    profile ? `/users/${username}/recipes?limit=40` : null,
+    (url: string) => api.get<Recipe[]>(url)
+  );
+
+  if (error) return (
+    <div className="min-h-screen bg-gray-950 px-4 py-12 text-center">
+      <p className="text-gray-400">User not found.</p>
+      <a href="/recipes" className="mt-4 inline-block text-brand-400 hover:underline">← Back to recipes</a>
+    </div>
+  );
+
+  if (!profile) return (
+    <div className="min-h-screen bg-gray-950 px-4 py-12 text-center text-gray-500">Loading…</div>
+  );
+
+  const initials = profile.display_name?.slice(0, 2).toUpperCase() ?? "?";
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-gray-100">
+      <div className="mx-auto max-w-4xl px-4 py-10">
+        {/* Back link */}
+        <a href="/recipes" className="mb-8 inline-flex items-center gap-1 text-sm text-gray-500 hover:text-brand-400">
+          ← All Recipes
+        </a>
+
+        {/* Profile header */}
+        <div className="flex items-center gap-6 mb-10">
+          {profile.avatar_url ? (
+            <img src={profile.avatar_url} alt={profile.display_name} className="h-20 w-20 rounded-full object-cover" />
+          ) : (
+            <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-brand-500 text-2xl font-bold text-white">
+              {initials}
+            </div>
+          )}
+          <div>
+            <h1 className="text-2xl font-bold">{profile.display_name}</h1>
+            <p className="text-sm text-gray-500">@{profile.username}</p>
+            {profile.joined && (
+              <p className="text-xs text-gray-600 mt-1">Member since {new Date(profile.joined).toLocaleDateString("en-AU", { year: "numeric", month: "long" })}</p>
+            )}
+            <div className="mt-2 flex gap-4 text-sm text-gray-400">
+              <span>📖 {profile.recipe_count} recipe{profile.recipe_count !== 1 ? "s" : ""}</span>
+              <span>👍 {profile.total_upvotes} upvote{profile.total_upvotes !== 1 ? "s" : ""}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Badges */}
+        {profile.badges.length > 0 && (
+          <section className="mb-10">
+            <h2 className="mb-4 text-lg font-bold">Badges</h2>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+              {profile.badges.map(b => (
+                <div key={b.id} className="flex items-start gap-3 rounded-xl border border-gray-800 bg-gray-900 p-3">
+                  <span className="text-2xl">{b.icon}</span>
+                  <div>
+                    <p className="text-sm font-semibold">{b.name}</p>
+                    <p className="text-xs text-gray-500">{b.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Recipes */}
+        <section>
+          <h2 className="mb-4 text-lg font-bold">Recipes by {profile.display_name}</h2>
+          {!userRecipes ? (
+            <p className="text-sm text-gray-500">Loading…</p>
+          ) : userRecipes.length === 0 ? (
+            <p className="text-sm text-gray-500">No published recipes yet.</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+              {userRecipes.map(r => <RecipeCard key={r.id} recipe={r} />)}
+            </div>
+          )}
         </section>
       </div>
     </div>

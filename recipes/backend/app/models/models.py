@@ -65,6 +65,7 @@ class User(Base):
     pantry      = relationship("PantryItem", back_populates="user")
     meal_plans  = relationship("MealPlan", back_populates="user")
     favorites   = relationship("Favorite", back_populates="user")
+    comments    = relationship("RecipeComment", back_populates="user")
 
 
 class Household(Base):
@@ -118,6 +119,7 @@ class Recipe(Base):
     ratings         = relationship("Rating", back_populates="recipe")
     meal_plan_items = relationship("MealPlanItem", back_populates="recipe")
     favorites       = relationship("Favorite", back_populates="recipe")
+    comments        = relationship("RecipeComment", back_populates="recipe", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_recipes_score", "score"),
@@ -267,6 +269,22 @@ class IngredientPrice(Base):
     fetched_at    = Column(DateTime(timezone=True), default=now_utc)
 
     ingredient = relationship("Ingredient", back_populates="prices")
+
+
+# ── Recipe Comments ───────────────────────────────────────────────────────────
+
+class RecipeComment(Base):
+    __tablename__ = "recipe_comments"
+
+    id         = Column(BigInteger, primary_key=True, autoincrement=True)
+    recipe_id  = Column(BigInteger, ForeignKey("recipes.id", ondelete="CASCADE"), nullable=False)
+    user_id    = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    body       = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=now_utc)
+    updated_at = Column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+    recipe = relationship("Recipe", back_populates="comments")
+    user   = relationship("User", back_populates="comments")
 
 
 # ── Shared Household Grocery List ─────────────────────────────────────────────

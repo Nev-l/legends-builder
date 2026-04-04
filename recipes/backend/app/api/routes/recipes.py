@@ -123,12 +123,14 @@ async def list_recipes(
 
 @router.get("/{slug}", response_model=dict)
 async def get_recipe(slug: str, db: AsyncSession = Depends(get_db)):
+    from app.models.models import User
     stmt = (
         select(Recipe)
         .where(Recipe.slug == slug, Recipe.is_published == True)
         .options(
             selectinload(Recipe.ingredients).selectinload(RecipeIngredient.ingredient),
             selectinload(Recipe.steps),
+            selectinload(Recipe.author),
         )
     )
     recipe = await db.scalar(stmt)
@@ -159,6 +161,8 @@ async def get_recipe(slug: str, db: AsyncSession = Depends(get_db)):
         "carbs_g": recipe.carbs_g,
         "fat_g": recipe.fat_g,
         "author_id": recipe.author_id,
+        "author_username": recipe.author.username if recipe.author else None,
+        "author_display_name": recipe.author.display_name or recipe.author.username if recipe.author else None,
         "forked_from_id": recipe.forked_from_id,
         "ingredients": [
             {

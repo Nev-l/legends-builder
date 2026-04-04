@@ -212,50 +212,109 @@ async def remove_item(
     await db.commit()
 
 
-# Ingredients that are universal pantry staples — never add to grocery list
-_SKIP_GROCERY = {
-    # Water / liquids
-    "water", "cold water", "hot water", "ice", "ice water",
-    # Salt & pepper
-    "salt", "sea salt", "kosher salt", "table salt", "rock salt", "flaky salt",
-    "black pepper", "white pepper", "pepper", "cracked pepper", "ground pepper",
-    "salt and pepper", "salt & pepper",
-    # Basic spices & herbs almost everyone has
-    "olive oil", "oil", "vegetable oil", "canola oil", "cooking oil", "cooking spray",
-    "nonstick spray", "spray oil",
-    "sugar", "white sugar", "granulated sugar",
-    "flour", "plain flour", "all purpose flour", "all-purpose flour",
-    "baking powder", "baking soda", "bicarbonate of soda", "bicarb soda",
-    "vanilla", "vanilla extract", "vanilla essence",
-    "cornstarch", "cornflour", "arrowroot",
-    # Super-common spices
-    "paprika", "cumin", "coriander", "turmeric", "cinnamon", "nutmeg",
-    "oregano", "thyme", "basil", "rosemary", "bay leaf", "bay leaves",
-    "chilli flakes", "red pepper flakes", "cayenne", "cayenne pepper",
-    "mixed herbs", "dried herbs", "italian seasoning", "dried oregano",
-    "dried thyme", "dried basil", "dried rosemary", "dried parsley",
-    "parsley", "chives",
-    "garlic powder", "onion powder", "smoked paprika",
-    # Common condiments / pantry sauces
-    "soy sauce", "fish sauce", "worcestershire sauce", "tabasco",
-    "vinegar", "white vinegar", "red wine vinegar", "apple cider vinegar",
-    "dijon mustard", "mustard",
-    # Leavening / baking staples
-    "yeast", "dry yeast", "instant yeast", "active dry yeast",
-    "cocoa powder", "cocoa",
+import re as _re
+
+# ── Grocery list helpers ──────────────────────────────────────────────────────
+
+# Strip leading quantity + unit from raw ingredient strings like:
+#   "2 tbsp olive oil ($0.32)"  →  "olive oil"
+#   "1 15oz. can kidney beans ($1.09)"  →  "kidney beans"
+#   "1/4 tsp cayenne powder ($0.02)"  →  "cayenne powder"
+_QTY_STRIP = _re.compile(
+    r"^[\d/ ]+\.?\d*\s*"                          # leading number (1, 1/4, 1.5 …)
+    r"(tbsp|tsp|cup|cups|oz|lb|lbs|g|kg|ml|l|"
+    r"clove|cloves|can|cans|bunch|head|slice|"
+    r"slices|piece|pieces|stalk|stalks|sprig|"
+    r"sprigs|pinch|dash|handful|pkg|package|"
+    r"packet|pkt|strip|strips|large|medium|"
+    r"small|extra large|xl)s?\.?\s*",
+    _re.IGNORECASE,
+)
+_PRICE_STRIP  = _re.compile(r"\(\$[\d\.]+\)")          # ($0.32)
+_PAREN_STRIP  = _re.compile(r"\([^)]*\)")              # any (…)
+_MULTI_SPACE  = _re.compile(r"\s{2,}")
+# Drop leading digits/fractions left after unit strip (e.g. "15" from "1 15oz. can")
+_LEADING_NUM  = _re.compile(r"^\d+\.?\d*\s+")
+
+# Words that when they appear in a cleaned name mean it's a spice/staple
+_SKIP_WORDS = {
+    "salt","pepper","water","oil","sugar","flour","powder","spice","spices",
+    "seasoning","sauce","extract","vanilla","vinegar","baking","cumin",
+    "paprika","turmeric","oregano","thyme","basil","coriander","cayenne",
+    "cinnamon","nutmeg","rosemary","bay","chilli","chili","flakes","mustard",
+    "cornstarch","cornflour","spray","soda","yeast","cocoa","lard","shortening",
+    "broth","stock","bouillon","msg","gelatin","agar",
 }
 
-def _should_skip(name: str) -> bool:
-    """Return True if this ingredient should be excluded from the grocery list."""
-    n = name.lower().strip()
-    # Exact match
-    if n in _SKIP_GROCERY:
+# Categories for the UI grouping
+_MEAT_WORDS    = {"beef","chicken","pork","lamb","turkey","fish","salmon","tuna",
+                  "shrimp","prawn","bacon","ham","sausage","mince","ground beef",
+                  "steak","duck","venison","bison","veal","liver","pepperoni",
+                  "chorizo","salami","anchovy","cod","tilapia","crab","lobster",
+                  "scallop","clam","mussel","oyster","seafood","meat"}
+_PRODUCE_WORDS = {"onion","garlic","tomato","pepper","capsicum","carrot","celery",
+                  "broccoli","spinach","lettuce","zucchini","eggplant","cucumber",
+                  "mushroom","cauliflower","kale","cabbage","corn","potato",
+                  "sweet potato","leek","shallot","ginger","lemon","lime","orange",
+                  "apple","banana","avocado","berry","berries","mango","pineapple",
+                  "herbs","herb","cilantro","parsley","coriander leaf","spring onion",
+                  "scallion","beetroot","beet","asparagus","artichoke","fennel",
+                  "butternut","squash","pumpkin","radish","turnip","bok choy",
+                  "bean sprouts","snap peas","snow peas","green beans"}
+_DAIRY_WORDS   = {"milk","cream","butter","cheese","yogurt","yoghurt","sour cream",
+                  "creme fraiche","ricotta","mozzarella","parmesan","cheddar",
+                  "feta","brie","gouda","havarti","cream cheese","ghee","whey",
+                  "half and half","heavy cream","ice cream","custard","kefir",
+                  "condensed milk","evaporated milk","buttermilk"}
+_PANTRY_WORDS  = {"pasta","rice","noodle","noodles","bread","flour","sugar",
+                  "canned","can","tin","tinned","beans","lentils","chickpeas",
+                  "kidney beans","black beans","coconut milk","tomato paste",
+                  "diced tomatoes","crushed tomatoes","stock","broth","honey",
+                  "maple syrup","jam","peanut butter","almond butter","oats",
+                  "quinoa","barley","couscous","cracker","crackers","cereal",
+                  "granola","nuts","almonds","walnuts","cashews","seeds",
+                  "sunflower seeds","pumpkin seeds","chia","flaxseed","soy sauce",
+                  "fish sauce","oyster sauce","hoisin","teriyaki","hot sauce",
+                  "ketchup","worcestershire","tahini","miso","curry paste",
+                  "coconut cream","vine leaves","breadcrumbs","panko"}
+
+
+def _clean_ingredient_name(raw: str) -> str:
+    """Strip quantity, unit, price, and parentheticals from a raw ingredient string."""
+    s = raw.strip()
+    s = _PRICE_STRIP.sub("", s)   # remove ($x.xx)
+    s = _PAREN_STRIP.sub("", s)   # remove (anything)
+    s = _QTY_STRIP.sub("", s)     # remove leading qty+unit
+    s = _LEADING_NUM.sub("", s)   # remove any leftover leading number
+    # Strip common descriptor prefixes
+    for prefix in ("ground ", "dried ", "fresh ", "frozen ", "chopped ", "minced ",
+                   "sliced ", "diced ", "grated ", "shredded ", "whole ", "raw ",
+                   "cooked ", "canned ", "tinned ", "large ", "medium ", "small ",
+                   "extra ", "boneless ", "skinless ", "lean "):
+        if s.lower().startswith(prefix):
+            s = s[len(prefix):]
+    s = _MULTI_SPACE.sub(" ", s).strip(" ,.")
+    # Title-case for display
+    return s
+
+
+def _categorise(name: str) -> str:
+    n = name.lower()
+    if any(w in n for w in _MEAT_WORDS):   return "Meat & Seafood"
+    if any(w in n for w in _PRODUCE_WORDS): return "Produce"
+    if any(w in n for w in _DAIRY_WORDS):   return "Dairy"
+    return "Pantry & Other"
+
+
+def _should_skip_grocery(cleaned: str) -> bool:
+    """Skip if clearly a spice, staple, or too short after cleaning."""
+    if len(cleaned) < 2:
         return True
-    # Partial match for things like "1 tsp salt", "pinch of pepper", "to taste"
-    if any(skip in n for skip in ("to taste", "as needed", "as required", "pinch of",
-                                   "pinch", "dash of", "dash", "spray")):
+    n = cleaned.lower()
+    if any(skip in n for skip in ("to taste", "as needed", "pinch", "dash", "spray")):
         return True
-    return False
+    words = set(_re.split(r"\W+", n))
+    return bool(words & _SKIP_WORDS)
 
 
 @router.get("/{plan_id}/grocery-list")
@@ -272,21 +331,35 @@ async def grocery_list(
     if not plan:
         raise HTTPException(404, "Plan not found")
 
+    # key = cleaned food name → accumulate
     totals: dict[str, dict] = {}
     for item in plan.items:
         if item.is_leftover:
             continue
-        scale = item.servings / max(item.recipe.servings or 1, 1)
         for ri in item.recipe.ingredients:
-            name = ri.ingredient.name
-            if _should_skip(name):
+            raw = ri.ingredient.name
+            cleaned = _clean_ingredient_name(raw)
+            if _should_skip_grocery(cleaned):
                 continue
-            qty = (ri.quantity or 0) * scale
-            if name not in totals:
-                totals[name] = {"ingredient": name, "total_quantity": 0.0, "unit": ri.unit}
-            totals[name]["total_quantity"] += qty
+            key = cleaned.lower()
+            if key not in totals:
+                totals[key] = {
+                    "ingredient": cleaned,
+                    "category": _categorise(cleaned),
+                    "raw_names": set(),
+                }
+            totals[key]["raw_names"].add(raw)
 
-    return list(totals.values())
+    # Convert sets to lists for JSON serialisation, sort by category then name
+    result = []
+    for v in totals.values():
+        result.append({
+            "ingredient": v["ingredient"],
+            "category": v["category"],
+        })
+
+    result.sort(key=lambda x: (x["category"], x["ingredient"].lower()))
+    return result
 
 
 # Keywords that signal a recipe belongs to a particular slot

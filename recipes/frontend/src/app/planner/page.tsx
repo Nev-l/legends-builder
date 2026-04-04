@@ -92,10 +92,18 @@ export default function PlannerPage() {
 
   const plan = plans?.find((p) => p.week_start?.slice(0, 10) === ws);
 
-  const { data: grocery } = useSWR<{ ingredient: string; total_quantity: number; unit: string | null }[]>(
+  const { data: grocery, mutate: mutateGrocery } = useSWR<{ ingredient: string; category: string }[]>(
     plan ? `/meal-planner/${plan.id}/grocery-list` : null,
-    (url: string) => api.get<{ ingredient: string; total_quantity: number; unit: string | null }[]>(url)
+    (url: string) => api.get<{ ingredient: string; category: string }[]>(url)
   );
+  const [addedToPantry, setAddedToPantry] = useState<Set<string>>(new Set());
+
+  async function addToPantry(name: string) {
+    try {
+      await api.post("/pantry", { ingredient_name: name });
+      setAddedToPantry(prev => new Set(prev).add(name));
+    } catch { /* ignore */ }
+  }
 
   async function createPlan() {
     await api.post("/meal-planner", { week_start: ws, items: [] });
@@ -309,27 +317,61 @@ export default function PlannerPage() {
           {/* Grocery list */}
           {grocery && grocery.length > 0 && (
             <section className="mt-8">
-              <h2 className="mb-3 text-lg font-bold">Grocery list</h2>
-              <ul className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
-                {grocery.map((g, i) => (
-                  <li key={i} className="flex items-center gap-2 rounded-lg bg-gray-900 px-3 py-2 text-sm">
-                    <span className="h-2 w-2 rounded-full bg-brand-500" />
-                    <span className="flex-1">{g.ingredient}</span>
-                    <span className="text-gray-400 tabular-nums">
-                      {g.total_quantity > 0 ? `${g.total_quantity.toFixed(1)}${g.unit ? ` ${g.unit}` : ""}` : ""}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              <button
-                onClick={() => {
-                  const text = grocery.map((g) => `${g.total_quantity > 0 ? g.total_quantity.toFixed(1) : ""}${g.unit ? ` ${g.unit}` : ""} ${g.ingredient}`.trim()).join("\n");
-                  navigator.clipboard.writeText(text);
-                }}
-                className="mt-3 rounded-lg bg-gray-800 px-4 py-2 text-sm hover:bg-gray-700"
-              >
-                Copy to clipboard
-              </button>
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-lg font-bold">Grocery list</h2>
+                <div className="flex gap-2">
+                  <button
+                    onClick={async () => {
+                      for (const g of grocery) {
+                        if (!addedToPantry.has(g.ingredient)) await addToPantry(g.ingredient);
+                      }
+                    }}
+                    className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs hover:bg-gray-700"
+                    title="Add all to pantry"
+                  >
+                    + Add all to pantry
+                  </button>
+                  <button
+                    onClick={() => navigator.clipboard.writeText(grocery.map(g => g.ingredient).join("\n"))}
+                    className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs hover:bg-gray-700"
+                  >
+                    Copy list
+                  </button>
+                </div>
+              </div>
+
+              {/* Grouped by category */}
+              {(["Meat & Seafood", "Produce", "Dairy", "Pantry & Other"] as const).map(cat => {
+                const items = grocery.filter(g => g.category === cat);
+                if (!items.length) return null;
+                return (
+                  <div key={cat} className="mb-5">
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">{cat}</h3>
+                    <ul className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+                      {items.map((g) => {
+                        const added = addedToPantry.has(g.ingredient);
+                        return (
+                          <li key={g.ingredient} className="flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-900 px-3 py-2 text-sm">
+                            <span className="h-2 w-2 shrink-0 rounded-full bg-brand-500" />
+                            <span className="flex-1">{g.ingredient}</span>
+                            <button
+                              onClick={() => !added && addToPantry(g.ingredient)}
+                              title={added ? "Added to pantry" : "Add to pantry"}
+                              className={`shrink-0 rounded px-1.5 py-0.5 text-xs transition ${
+                                added
+                                  ? "text-green-400 cursor-default"
+                                  : "text-gray-600 hover:bg-gray-800 hover:text-brand-400"
+                              }`}
+                            >
+                              {added ? "✓" : "+ pantry"}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                );
+              })}
             </section>
           )}
         </>

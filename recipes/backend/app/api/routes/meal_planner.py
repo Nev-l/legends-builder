@@ -212,6 +212,52 @@ async def remove_item(
     await db.commit()
 
 
+# Ingredients that are universal pantry staples — never add to grocery list
+_SKIP_GROCERY = {
+    # Water / liquids
+    "water", "cold water", "hot water", "ice", "ice water",
+    # Salt & pepper
+    "salt", "sea salt", "kosher salt", "table salt", "rock salt", "flaky salt",
+    "black pepper", "white pepper", "pepper", "cracked pepper", "ground pepper",
+    "salt and pepper", "salt & pepper",
+    # Basic spices & herbs almost everyone has
+    "olive oil", "oil", "vegetable oil", "canola oil", "cooking oil", "cooking spray",
+    "nonstick spray", "spray oil",
+    "sugar", "white sugar", "granulated sugar",
+    "flour", "plain flour", "all purpose flour", "all-purpose flour",
+    "baking powder", "baking soda", "bicarbonate of soda", "bicarb soda",
+    "vanilla", "vanilla extract", "vanilla essence",
+    "cornstarch", "cornflour", "arrowroot",
+    # Super-common spices
+    "paprika", "cumin", "coriander", "turmeric", "cinnamon", "nutmeg",
+    "oregano", "thyme", "basil", "rosemary", "bay leaf", "bay leaves",
+    "chilli flakes", "red pepper flakes", "cayenne", "cayenne pepper",
+    "mixed herbs", "dried herbs", "italian seasoning", "dried oregano",
+    "dried thyme", "dried basil", "dried rosemary", "dried parsley",
+    "parsley", "chives",
+    "garlic powder", "onion powder", "smoked paprika",
+    # Common condiments / pantry sauces
+    "soy sauce", "fish sauce", "worcestershire sauce", "tabasco",
+    "vinegar", "white vinegar", "red wine vinegar", "apple cider vinegar",
+    "dijon mustard", "mustard",
+    # Leavening / baking staples
+    "yeast", "dry yeast", "instant yeast", "active dry yeast",
+    "cocoa powder", "cocoa",
+}
+
+def _should_skip(name: str) -> bool:
+    """Return True if this ingredient should be excluded from the grocery list."""
+    n = name.lower().strip()
+    # Exact match
+    if n in _SKIP_GROCERY:
+        return True
+    # Partial match for things like "1 tsp salt", "pinch of pepper", "to taste"
+    if any(skip in n for skip in ("to taste", "as needed", "as required", "pinch of",
+                                   "pinch", "dash of", "dash", "spray")):
+        return True
+    return False
+
+
 @router.get("/{plan_id}/grocery-list")
 async def grocery_list(
     plan_id: int,
@@ -233,12 +279,49 @@ async def grocery_list(
         scale = item.servings / max(item.recipe.servings or 1, 1)
         for ri in item.recipe.ingredients:
             name = ri.ingredient.name
-            qty  = (ri.quantity or 0) * scale
+            if _should_skip(name):
+                continue
+            qty = (ri.quantity or 0) * scale
             if name not in totals:
                 totals[name] = {"ingredient": name, "total_quantity": 0.0, "unit": ri.unit}
             totals[name]["total_quantity"] += qty
 
     return list(totals.values())
+
+
+# Keywords that signal a recipe belongs to a particular slot
+_BREAKFAST_KEYWORDS = {
+    "breakfast", "pancake", "pancakes", "waffle", "waffles", "omelette", "omelet",
+    "eggs benedict", "french toast", "granola", "oatmeal", "porridge", "muesli",
+    "smoothie bowl", "breakfast bowl", "morning", "brunch", "scrambled eggs",
+    "fried eggs", "poached eggs", "frittata", "quiche", "hash brown", "hashbrown",
+    "bacon and eggs", "cereal", "overnight oats", "crepes", "crêpes",
+}
+_SNACK_KEYWORDS = {
+    "snack", "dip", "chips", "crackers", "bites", "balls", "bliss balls",
+    "protein bar", "energy bar", "muffin", "muffins", "cookie", "cookies",
+    "brownie", "slice", "trail mix", "hummus", "guacamole", "salsa",
+    "nachos", "popcorn", "nuts", "smoothie", "shake", "protein shake",
+    "mini", "bite-sized", "finger food",
+}
+_LUNCH_KEYWORDS = {
+    "salad", "sandwich", "wrap", "roll", "soup", "bowl", "sushi", "poke",
+    "lunch", "frittata", "quiche", "flatbread", "bruschetta", "toast",
+    "grain bowl", "noodle salad", "pasta salad",
+}
+
+
+def _slot_score(title: str, slot: str) -> bool:
+    """Return True if recipe title suggests it fits the given slot."""
+    t = title.lower()
+    if slot == "breakfast":
+        return any(k in t for k in _BREAKFAST_KEYWORDS)
+    if slot == "snack":
+        return any(k in t for k in _SNACK_KEYWORDS)
+    if slot == "lunch":
+        return any(k in t for k in _LUNCH_KEYWORDS)
+    # dinner: anything that's NOT clearly a breakfast or snack
+    return not any(k in t for k in _BREAKFAST_KEYWORDS | _SNACK_KEYWORDS)
 
 
 @router.get("/recommend")
@@ -249,7 +332,7 @@ async def recommend_meals(
     db: AsyncSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
 ):
-    """Return recipes whose calories-per-serving are close to calorie_target."""
+    """Return recipes appropriate for the given slot, near the calorie target."""
     q = select(Recipe).where(
         Recipe.calories != None,
         Recipe.is_published == True,
@@ -260,14 +343,35 @@ async def recommend_meals(
         for tag in tags:
             q = q.where(Recipe.diet_tags.contains([tag]))
 
-    # Pick recipes within ±40% of the calorie target, randomised
-    low  = calorie_target * 0.6
-    high = calorie_target * 1.4
-    q = q.where(Recipe.calories >= low, Recipe.calories <= high)
-    q = q.order_by(func.random()).limit(12)
+    # Calorie range — snacks are lighter, mains are fuller
+    if slot == "snack":
+        low  = max(50,  calorie_target * 0.4)
+        high = calorie_target * 0.8
+    elif slot == "breakfast":
+        low  = calorie_target * 0.5
+        high = calorie_target * 1.1
+    else:  # lunch / dinner
+        low  = calorie_target * 0.7
+        high = calorie_target * 1.4
 
+    q = q.where(Recipe.calories >= low, Recipe.calories <= high)
+
+    # Fetch a larger pool then filter + shuffle in Python for slot relevance
+    q = q.order_by(func.random()).limit(60)
     rows = await db.execute(q)
-    recipes = rows.scalars().all()
+    all_recipes = rows.scalars().all()
+
+    # Prefer recipes whose title matches the slot; fall back to anything in range
+    matched   = [r for r in all_recipes if _slot_score(r.title, slot)]
+    unmatched = [r for r in all_recipes if not _slot_score(r.title, slot)]
+
+    # If lunch, also accept dinner-style mains (no strong slot signal)
+    if slot == "lunch" and len(matched) < 6:
+        neutral = [r for r in unmatched if not any(k in r.title.lower() for k in _BREAKFAST_KEYWORDS | _SNACK_KEYWORDS)]
+        matched = matched + neutral
+
+    combined = (matched + unmatched)[:12]
+
     return [
         {
             "slug": r.slug,
@@ -279,5 +383,5 @@ async def recommend_meals(
             "prep_minutes": r.prep_minutes,
             "cook_minutes": r.cook_minutes,
         }
-        for r in recipes
+        for r in combined
     ]

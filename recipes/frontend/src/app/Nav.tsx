@@ -25,7 +25,7 @@ export default function Nav() {
           <a href="/recipes/pantry"  className="hover:text-white">Pantry</a>
           {username ? (
             <>
-              <span className="text-gray-500">Hi, <strong className="text-white">{username}</strong></span>
+              <a href={`/recipes/user/${username}`} className="text-gray-500 hover:text-brand-400">Hi, <strong className="text-white">{username}</strong></a>
               <button
                 onClick={signOut}
                 className="rounded-md border border-gray-700 px-3 py-1.5 hover:border-gray-500 hover:text-white"

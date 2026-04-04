@@ -91,50 +91,27 @@ function RecipeList() {
   const [diet, setDiet] = useState("");
   const [q, setQ] = useState("");
   const [search, setSearch] = useState("");
-  const [scraping, setScraping] = useState(false);
-  const [scrapeError, setScrapeError] = useState("");
   const [creating, setCreating] = useState(false);
   const [page, setPage] = useState(0);
-  const isLoggedIn = typeof window !== "undefined" && !!localStorage.getItem("rh_token");
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  useEffect(() => {
+    setIsLoggedIn(!!localStorage.getItem("rh_token"));
+  }, []);
 
   // Reset to page 0 whenever filters change
   function changeFilter(fn: () => void) { fn(); setPage(0); }
 
   const swrKey = `/recipes?sort=${sort}&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}${search ? `&q=${encodeURIComponent(search)}` : ""}${diet ? `&diet=${diet}` : ""}`;
-  const { data: recipes, isLoading, mutate } = useSWR<Recipe[]>(
+  const { data: recipes, isLoading } = useSWR<Recipe[]>(
     swrKey,
     (url: string) => api.get<Recipe[]>(url.replace("/recipes/api", ""))
   );
 
-  function isUrl(val: string) {
-    return val.startsWith("http://") || val.startsWith("https://");
-  }
-
-  async function handleSearch() {
-    setScrapeError("");
+  function handleSearch() {
     if (!q.trim()) return;
-
-    if (isUrl(q.trim())) {
-      // Scrape the URL and navigate to the new recipe
-      setScraping(true);
-      try {
-        const token = localStorage.getItem("rh_token");
-        if (!token) {
-          setScrapeError("Sign in to scrape recipes from URLs.");
-          return;
-        }
-        const recipe = await api.post<Recipe>("/recipes/scrape", { url: q.trim() });
-        mutate();
-        window.location.href = `/recipes/${recipe.slug}`;
-      } catch (e: any) {
-        setScrapeError(e.message ?? "Could not scrape that URL.");
-      } finally {
-        setScraping(false);
-      }
-    } else {
-      setSearch(q.trim());
-      setPage(0);
-    }
+    setSearch(q.trim());
+    setPage(0);
   }
 
   return (
@@ -144,25 +121,24 @@ function RecipeList() {
           Find your next favourite meal
         </h1>
         <p className="text-gray-400">
-          Search recipes or paste any recipe URL to scrape and save it.
+          Search from {">"}5,000 recipes or create your own.
         </p>
       </section>
 
       <div className="mb-2 flex flex-col gap-3 sm:flex-row">
         <input
           className="flex-1 rounded-lg border border-gray-700 bg-gray-900 px-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500"
-          placeholder="Search recipes or paste a URL to scrape…"
+          placeholder="Search recipes…"
           value={q}
-          onChange={(e) => { setQ(e.target.value); setScrapeError(""); }}
+          onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-          disabled={scraping}
         />
         <button
           onClick={handleSearch}
-          disabled={scraping || !q.trim()}
+          disabled={!q.trim()}
           className="rounded-lg bg-brand-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-600 disabled:opacity-50 whitespace-nowrap"
         >
-          {scraping ? "Scraping…" : isUrl(q) ? "Scrape & Save" : "Search"}
+          Search
         </button>
         <div className="flex gap-2">
           {SORTS.map((s) => (
@@ -180,8 +156,6 @@ function RecipeList() {
           ))}
         </div>
       </div>
-      {scrapeError && <p className="mb-4 text-sm text-red-400">{scrapeError}</p>}
-
       {/* Diet filters + Create button */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-2">
@@ -230,8 +204,7 @@ function RecipeList() {
             {recipes?.map((r) => <RecipeCard key={r.id} recipe={r} />)}
             {recipes?.length === 0 && (
               <p className="col-span-full text-center text-gray-500">
-                No recipes found.{" "}
-                {!search && <span className="text-gray-600">Paste a recipe URL above to add one.</span>}
+                No recipes found.
               </p>
             )}
           </div>

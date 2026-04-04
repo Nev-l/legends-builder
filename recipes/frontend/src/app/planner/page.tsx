@@ -77,8 +77,13 @@ export default function PlannerPage() {
   const [recommendLoading, setRecommendLoading] = useState(false);
   const [targetDay, setTargetDay] = useState(0);
 
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  useEffect(() => {
+    setIsLoggedIn(!!localStorage.getItem("rh_token"));
+  }, []);
+
   const { data: plans, mutate: mutatePlans, isLoading } = useSWR<MealPlan[]>(
-    "/meal-planner",
+    isLoggedIn ? "/meal-planner" : null,
     (url: string) => api.get<MealPlan[]>(url)
   );
 
@@ -164,8 +169,6 @@ export default function PlannerPage() {
     });
     mutatePlans();
   }
-
-  const isLoggedIn = typeof window !== "undefined" && !!localStorage.getItem("rh_token");
 
   return (
     <div>

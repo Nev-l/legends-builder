@@ -84,6 +84,7 @@ class RecipeOut(BaseModel):
     downvotes: int
     score: int
     author_id: Optional[int]
+    calories: Optional[float] = None
 
     class Config:
         from_attributes = True

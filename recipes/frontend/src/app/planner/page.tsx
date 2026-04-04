@@ -59,11 +59,37 @@ function caloriesForDay(items: MealPlanItem[], dayIdx: number): number {
     }, 0);
 }
 
+// ── Toast notification ────────────────────────────────────────────────────────
+function Toast({ message, onDone }: { message: string; onDone: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 3000);
+    return () => clearTimeout(t);
+  }, [onDone]);
+  return (
+    <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-gray-700 bg-gray-900 px-5 py-3 text-sm font-medium shadow-2xl animate-fade-in">
+      {message}
+    </div>
+  );
+}
+
+// Next unfilled slot for a day, in order breakfast → lunch → dinner → snack
+// Returns null if all main slots are filled (snack can always stack)
+function nextSlot(items: MealPlanItem[], dayIdx: number): Slot {
+  const filled = new Set(items.filter(i => i.day_of_week === dayIdx).map(i => i.slot));
+  for (const s of ["breakfast", "lunch", "dinner"] as Slot[]) {
+    if (!filled.has(s)) return s;
+  }
+  return "snack"; // always allow snack as overflow
+}
+
 export default function PlannerPage() {
   const [weekOffset, setWeekOffset] = useState(0);
   const ws = weekStart(weekOffset);
   const [calorieGoal, setCalorieGoal] = useState<number>(2000);
   const [goalInput, setGoalInput] = useState("2000");
+
+  // Toast
+  const [toast, setToast] = useState<string | null>(null);
 
   // Add-meal modal state
   const [addingTo, setAddingTo] = useState<{ planId: number; day: number; slot: Slot } | null>(null);
@@ -147,11 +173,35 @@ export default function PlannerPage() {
       slot: addingTo.slot,
       servings,
     });
-    mutatePlans();
-    setAddingTo(null);
-    setSearchQ("");
-    setSearchRes([]);
-    setServings(2);
+    await mutatePlans();
+
+    const dayName = DAYS[addingTo.day];
+    const slotName = addingTo.slot.charAt(0).toUpperCase() + addingTo.slot.slice(1);
+    setToast(`Added "${recipe.title}" as ${slotName} for ${dayName}`);
+
+    // Auto-advance: open next unfilled slot for same day, unless all filled
+    const updatedItems = plans?.flatMap(p => p.items) ?? [];
+    const nextS = nextSlot(
+      [...updatedItems, { day_of_week: addingTo.day, slot: addingTo.slot } as MealPlanItem],
+      addingTo.day
+    );
+    // Only auto-advance if there's still a main slot free (not looping back to snack)
+    const filledNow = new Set(
+      updatedItems.filter(i => i.day_of_week === addingTo.day).map(i => i.slot)
+    );
+    filledNow.add(addingTo.slot);
+    const mainsFull = (["breakfast","lunch","dinner"] as Slot[]).every(s => filledNow.has(s));
+
+    if (!mainsFull) {
+      setAddingTo({ planId: addingTo.planId, day: addingTo.day, slot: nextS });
+      setSearchQ("");
+      setSearchRes([]);
+    } else {
+      setAddingTo(null);
+      setSearchQ("");
+      setSearchRes([]);
+      setServings(2);
+    }
   }
 
   async function fetchRecommend() {
@@ -183,6 +233,7 @@ export default function PlannerPage() {
 
   return (
     <div>
+      {toast && <Toast message={toast} onDone={() => setToast(null)} />}
       {/* Header */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-extrabold">Meal Planner</h1>
@@ -270,12 +321,21 @@ export default function PlannerPage() {
                   <tr key={slot} className="border-t border-gray-800">
                     <td className="p-2 capitalize text-gray-500">{slot}</td>
                     {DAYS.map((_, dayIdx) => {
-                      const item = cellItem(dayIdx, slot);
+                      // Snack allows multiple items; others show one
+                      const cellItems = slot === "snack"
+                        ? (plan?.items.filter(i => i.day_of_week === dayIdx && i.slot === slot) ?? [])
+                        : [cellItem(dayIdx, slot)].filter(Boolean) as MealPlanItem[];
+                      const isEmpty = cellItems.length === 0;
+                      // For non-snack slots: show + if empty; for snack: always show +
+                      const showAdd = isEmpty || slot === "snack";
+                      // Check if calories unmet (show extra snack hint)
+                      const dayCal = caloriesForDay(plan.items, dayIdx);
+                      const showSnackHint = slot === "snack" && cellItems.length > 0 && dayCal < calorieGoal * 0.9;
                       return (
                         <td key={dayIdx} className="p-1 align-top">
                           <div className="min-h-[60px] rounded-lg border border-dashed border-gray-800 p-1">
-                            {item ? (
-                              <div className="group relative mb-1 rounded bg-gray-800 p-1 text-xs">
+                            {cellItems.map(item => (
+                              <div key={item.id} className="group relative mb-1 rounded bg-gray-800 p-1 text-xs">
                                 <a href={`/recipes/${item.recipe.slug}`} className="flex items-center gap-1 hover:text-brand-400">
                                   {item.recipe.image_url ? (
                                     <img src={item.recipe.image_url} alt="" className="h-8 w-8 rounded object-cover" />
@@ -295,13 +355,16 @@ export default function PlannerPage() {
                                   title="Remove"
                                 >✕</button>
                               </div>
-                            ) : (
+                            ))}
+                            {showAdd && (
                               <button
                                 onClick={() => setAddingTo({ planId: plan.id, day: dayIdx, slot })}
-                                className="flex h-full w-full items-center justify-center rounded p-2 text-gray-700 hover:bg-gray-800 hover:text-gray-400"
-                                title="Add meal"
+                                className={`flex w-full items-center justify-center gap-1 rounded p-1.5 text-xs hover:bg-gray-800 hover:text-gray-300 ${
+                                  showSnackHint ? "text-yellow-600" : "text-gray-700"
+                                }`}
+                                title={showSnackHint ? "Add snack to meet calorie goal" : "Add meal"}
                               >
-                                +
+                                {showSnackHint ? "⚡ add snack" : "+"}
                               </button>
                             )}
                           </div>
@@ -382,7 +445,7 @@ export default function PlannerPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setAddingTo(null)}>
           <div className="w-full max-w-md rounded-2xl border border-gray-700 bg-gray-950 p-6" onClick={(e) => e.stopPropagation()}>
             <h2 className="mb-4 text-lg font-bold">
-              Add meal — {DAYS[addingTo.day]} {addingTo.slot}
+              Add {addingTo.slot} — {DAYS[addingTo.day]}
             </h2>
             <input
               autoFocus

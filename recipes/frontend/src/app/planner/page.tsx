@@ -86,7 +86,7 @@ export default function PlannerPage() {
 
   const { data: grocery } = useSWR<{ ingredient: string; total_quantity: number; unit: string | null }[]>(
     plan ? `/meal-planner/${plan.id}/grocery-list` : null,
-    (url: string) => api.get(url)
+    (url: string) => api.get<{ ingredient: string; total_quantity: number; unit: string | null }[]>(url)
   );
 
   async function createPlan() {

@@ -61,6 +61,12 @@ async def compute_badges(user: User, db: AsyncSession) -> list[dict]:
     if user.id == 1:
         earned.append("admin")
 
+    # Manually granted badges
+    if user.manual_badges:
+        for b in user.manual_badges:
+            if b not in earned:
+                earned.append(b)
+
     # Membership duration
     days = (now - joined).days
     if days >= 7:   earned.append("week_1")
@@ -146,6 +152,8 @@ async def get_profile(username: str, db: AsyncSession = Depends(get_db)):
         "username": user.username,
         "display_name": user.display_name or user.username,
         "avatar_url": user.avatar_url,
+        "bio": user.bio,
+        "manual_badges": user.manual_badges or [],
         "joined": user.created_at.date().isoformat() if user.created_at else None,
         "recipe_count": recipe_count,
         "total_upvotes": int(total_upvotes),
@@ -232,6 +240,11 @@ async def add_comment(
     if not recipe:
         raise HTTPException(404, "Recipe not found")
 
+    # Explicitly check user exists to avoid IntegrityError (which causes 500s)
+    user = await db.scalar(select(User).where(User.id == user_id))
+    if not user:
+        raise HTTPException(401, "Account not found. Please log in again.")
+
     comment = RecipeComment(
         recipe_id=recipe.id,
         user_id=user_id,
@@ -239,9 +252,6 @@ async def add_comment(
     )
     db.add(comment)
     await db.flush()
-
-    # Load user for response
-    user = await db.scalar(select(User).where(User.id == user_id))
     await db.commit()
 
     return {
@@ -273,3 +283,62 @@ async def delete_comment(
         raise HTTPException(403, "Not authorised")
     await db.delete(comment)
     await db.commit()
+
+
+# ── Profile editing ───────────────────────────────────────────────────────────
+
+class ProfileUpdate(BaseModel):
+    display_name: Optional[str] = None
+    avatar_url: Optional[str] = None
+    bio: Optional[str] = None
+
+
+@router.patch("/users/{username}")
+async def update_profile(
+    username: str,
+    body: ProfileUpdate,
+    user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await db.scalar(select(User).where(User.username == username.lower()))
+    if not user:
+        raise HTTPException(404, "User not found")
+    # Only the user themselves or admin (id=1) can edit
+    if user.id != user_id and user_id != 1:
+        raise HTTPException(403, "Not authorised")
+
+    if body.display_name is not None:
+        user.display_name = body.display_name.strip()[:120] or None
+    if body.avatar_url is not None:
+        user.avatar_url = body.avatar_url.strip()[:500] or None
+    if body.bio is not None:
+        user.bio = body.bio.strip()[:500] or None
+
+    await db.commit()
+    return {"ok": True}
+
+
+# ── Admin: manage manual badges ───────────────────────────────────────────────
+
+class BadgeUpdate(BaseModel):
+    badges: list[str]
+
+
+@router.put("/users/{username}/badges")
+async def set_manual_badges(
+    username: str,
+    body: BadgeUpdate,
+    user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    if user_id != 1:
+        raise HTTPException(403, "Admin only")
+    user = await db.scalar(select(User).where(User.username == username.lower()))
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    # Only allow valid badge ids
+    valid = {b["id"] for b in BADGE_DEFS}
+    user.manual_badges = [b for b in body.badges if b in valid]
+    await db.commit()
+    return {"ok": True, "manual_badges": user.manual_badges}

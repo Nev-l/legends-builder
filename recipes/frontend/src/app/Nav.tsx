@@ -25,6 +25,11 @@ export default function Nav() {
           <a href="/recipes/pantry"  className="hover:text-white">Pantry</a>
           {username ? (
             <>
+              {username.toLowerCase() === "nev" && (
+                <a href="/recipes/admin/edits" className="rounded-md bg-brand-500/20 px-3 py-1.5 text-brand-400 border border-brand-500/50 hover:bg-brand-500 hover:text-white">
+                  Review Edits
+                </a>
+              )}
               <a href={`/recipes/user/${username}`} className="text-gray-500 hover:text-brand-400">Hi, <strong className="text-white">{username}</strong></a>
               <button
                 onClick={signOut}

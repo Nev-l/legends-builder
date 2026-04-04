@@ -55,6 +55,8 @@ class User(Base):
     display_name    = Column(String(120))
     avatar_url      = Column(String(500))
     dietary_prefs   = Column(ARRAY(String), default=list)  # e.g. ["vegan", "gluten_free"]
+    bio             = Column(Text)
+    manual_badges   = Column(ARRAY(String), default=list)  # admin-granted badge ids
     household_id    = Column(BigInteger, ForeignKey("households.id"), nullable=True)
     is_active       = Column(Boolean, default=True)
     created_at      = Column(DateTime(timezone=True), default=now_utc)
@@ -285,6 +287,23 @@ class RecipeComment(Base):
 
     recipe = relationship("Recipe", back_populates="comments")
     user   = relationship("User", back_populates="comments")
+
+
+# ── Recipe Edits ─────────────────────────────────────────────────────────────
+
+class RecipeEditProposal(Base):
+    __tablename__ = "recipe_edits"
+
+    id               = Column(BigInteger, primary_key=True, autoincrement=True)
+    recipe_id        = Column(BigInteger, ForeignKey("recipes.id", ondelete="CASCADE"), nullable=False)
+    user_id          = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    proposed_changes = Column(JSONB, nullable=False)
+    status           = Column(String(20), default="pending") # pending, approved, rejected
+    created_at       = Column(DateTime(timezone=True), default=now_utc)
+    updated_at       = Column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+    recipe = relationship("Recipe")
+    user   = relationship("User")
 
 
 # ── Shared Household Grocery List ─────────────────────────────────────────────

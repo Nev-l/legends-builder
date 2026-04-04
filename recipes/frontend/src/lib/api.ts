@@ -1,6 +1,6 @@
 const BASE = "/recipes/api";
 
-export async function apiFetch<T>(
+export async function apiFetch<T = void>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
@@ -13,10 +13,26 @@ export async function apiFetch<T>(
 
   const res = await fetch(`${BASE}${path}`, { ...options, headers });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail ?? "Request failed");
+    let errDetail: string;
+    try {
+      const err = await res.json();
+      if (Array.isArray(err.detail)) {
+        errDetail = err.detail.map((e: { msg: string }) => e.msg).join(", ");
+      } else {
+        errDetail = err.detail || JSON.stringify(err);
+      }
+    } catch {
+      errDetail = res.statusText || `HTTP ${res.status} error`;
+    }
+    throw new Error(errDetail || "Request failed");
   }
-  return res.json() as Promise<T>;
+  // 204 No Content or empty body — don't try to parse JSON
+  if (res.status === 204 || res.headers.get("content-length") === "0") {
+    return undefined as unknown as T;
+  }
+  const text = await res.text();
+  if (!text) return undefined as unknown as T;
+  return JSON.parse(text) as T;
 }
 
 export const api = {
@@ -25,5 +41,7 @@ export const api = {
     apiFetch<T>(path, { method: "POST", body: JSON.stringify(body) }),
   put:    <T>(path: string, body: unknown) =>
     apiFetch<T>(path, { method: "PUT", body: JSON.stringify(body) }),
-  delete: <T>(path: string) => apiFetch<T>(path, { method: "DELETE" }),
+  patch:  <T>(path: string, body: unknown) =>
+    apiFetch<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
+  delete: (path: string) => apiFetch<void>(path, { method: "DELETE" }),
 };

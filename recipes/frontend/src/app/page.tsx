@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
-import useSWR from "swr";
+import useSWR, { mutate } from "swr";
 import { api } from "@/lib/api";
 
 interface Recipe {
@@ -40,6 +40,7 @@ interface RecipeDetail extends Recipe {
   author_id: number | null;
   author_username: string | null;
   author_display_name: string | null;
+  source: string;
   source_url: string | null;
   ingredients: Ingredient[];
   steps: Step[];
@@ -665,7 +666,7 @@ function RecipeDetailView({ slug }: { slug: string }) {
     try {
       const ingredients = editIngredients.split("\n").filter(Boolean).map(line => ({ name: line.trim() }));
       const steps = editSteps.split(/\n\n+/).filter(Boolean).map(s => ({ body: s.trim() }));
-      const updated = await api.put<RecipeDetail>(`/recipes/${recipe.slug}`, {
+      const payload = {
         title:       editTitle,
         description: editDesc || null,
         image_url:   editImage || null,
@@ -675,7 +676,16 @@ function RecipeDetailView({ slug }: { slug: string }) {
         diet_tags:   editDiets,
         ingredients,
         steps,
-      });
+      };
+
+      if (!isOwner && recipe.source === "scraped") {
+        await api.post(`/recipes/${recipe.slug}/suggest-edit`, payload);
+        setEditing(false);
+        alert("Edit suggestion submitted for review!");
+        return;
+      }
+
+      const updated = await api.put<RecipeDetail>(`/recipes/${recipe.slug}`, payload);
       await mutate(updated as any, false);
       setEditing(false);
       // If slug changed, navigate to new URL
@@ -870,7 +880,7 @@ function RecipeDetailView({ slug }: { slug: string }) {
             🍴 Fork & edit
           </button>
         )}
-        {isOwner && (
+        {isOwner ? (
           <>
             <button onClick={startEdit} className="rounded-lg bg-gray-800 px-4 py-2 text-sm hover:bg-gray-700">
               ✏️ Edit
@@ -880,7 +890,11 @@ function RecipeDetailView({ slug }: { slug: string }) {
               {deleting ? "Deleting…" : "🗑 Delete"}
             </button>
           </>
-        )}
+        ) : (recipe.source === "scraped" && userId) ? (
+          <button onClick={startEdit} className="rounded-lg bg-gray-800 px-4 py-2 text-sm text-brand-400 hover:bg-gray-700 font-medium">
+            💡 Suggest Edit
+          </button>
+        ) : null}
         <div className="ml-auto flex items-center gap-2 text-sm">
           <span className="text-gray-400">Servings:</span>
           <button onClick={() => setServings(Math.max(1, (servings ?? recipe.servings) - 1))} className="rounded bg-gray-800 px-2 py-1 hover:bg-gray-700">−</button>
@@ -1014,11 +1028,37 @@ function RecipeDetailView({ slug }: { slug: string }) {
 
 // ── User Profile ─────────────────────────────────────────────────────────────
 
+const ALL_BADGE_IDS = [
+  { id: "first_recipe", name: "First Recipe", icon: "🍳" },
+  { id: "recipe_5", name: "Home Cook", icon: "👨‍🍳" },
+  { id: "recipe_20", name: "Chef", icon: "🧑‍🍳" },
+  { id: "recipe_50", name: "Master Chef", icon: "⭐" },
+  { id: "first_fork", name: "Remixer", icon: "🍴" },
+  { id: "fork_5", name: "Recipe Hacker", icon: "🔧" },
+  { id: "first_upvote", name: "Crowd Pleaser", icon: "👍" },
+  { id: "upvotes_10", name: "Fan Favourite", icon: "🌟" },
+  { id: "upvotes_50", name: "Community Star", icon: "💫" },
+  { id: "upvotes_100", name: "Legend", icon: "🏆" },
+  { id: "voted_10", name: "Critic", icon: "🎭" },
+  { id: "voted_50", name: "Food Critic", icon: "📝" },
+  { id: "first_comment", name: "Conversationalist", icon: "💬" },
+  { id: "comment_10", name: "Social Butterfly", icon: "🦋" },
+  { id: "week_1", name: "Regular", icon: "📅" },
+  { id: "month_1", name: "Loyal Member", icon: "🗓️" },
+  { id: "month_6", name: "Veteran", icon: "🎖️" },
+  { id: "year_1", name: "Old Timer", icon: "🏅" },
+  { id: "diet_variety", name: "Diet Explorer", icon: "🌈" },
+  { id: "planner_user", name: "Meal Planner", icon: "📋" },
+  { id: "admin", name: "Admin", icon: "🛡️" },
+];
+
 interface UserProfile {
   id: number;
   username: string;
   display_name: string;
   avatar_url: string | null;
+  bio: string | null;
+  manual_badges: string[];
   joined: string | null;
   recipe_count: number;
   total_upvotes: number;
@@ -1026,7 +1066,7 @@ interface UserProfile {
 }
 
 function UserProfileView({ username }: { username: string }) {
-  const { data: profile, error } = useSWR<UserProfile>(
+  const { data: profile, error, mutate } = useSWR<UserProfile>(
     `/users/${username}`,
     (url: string) => api.get<UserProfile>(url)
   );
@@ -1034,6 +1074,77 @@ function UserProfileView({ username }: { username: string }) {
     profile ? `/users/${username}/recipes?limit=40` : null,
     (url: string) => api.get<Recipe[]>(url)
   );
+
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editAvatar, setEditAvatar] = useState("");
+  const [editBio, setEditBio] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const [adminBadges, setAdminBadges] = useState(false);
+  const [selectedBadges, setSelectedBadges] = useState<string[]>([]);
+  const [savingBadges, setSavingBadges] = useState(false);
+
+  const [myUsername, setMyUsername] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    const u = localStorage.getItem("rh_username");
+    setMyUsername(u);
+    try {
+      const token = localStorage.getItem("rh_token");
+      if (token) {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        setIsAdmin(parseInt(payload.sub) === 1);
+      }
+    } catch {}
+  }, []);
+
+  const isOwn = myUsername?.toLowerCase() === username.toLowerCase();
+  const canEdit = isOwn || isAdmin;
+
+  function startEdit() {
+    if (!profile) return;
+    setEditName(profile.display_name || "");
+    setEditAvatar(profile.avatar_url || "");
+    setEditBio(profile.bio || "");
+    setEditing(true);
+  }
+
+  async function saveProfile(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.patch(`/users/${username}`, {
+        display_name: editName,
+        avatar_url: editAvatar,
+        bio: editBio,
+      });
+      mutate();
+      setEditing(false);
+    } catch (e: any) { alert(e.message); }
+    finally { setSaving(false); }
+  }
+
+  function openBadgeAdmin() {
+    if (!profile) return;
+    setSelectedBadges(profile.manual_badges || []);
+    setAdminBadges(true);
+  }
+
+  async function saveBadges() {
+    setSavingBadges(true);
+    try {
+      await api.put(`/users/${username}/badges`, { badges: selectedBadges });
+      mutate();
+      setAdminBadges(false);
+    } catch (e: any) { alert(e.message); }
+    finally { setSavingBadges(false); }
+  }
+
+  function toggleBadge(id: string) {
+    setSelectedBadges(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }
 
   if (error) return (
     <div className="min-h-screen bg-gray-950 px-4 py-12 text-center">
@@ -1051,32 +1162,107 @@ function UserProfileView({ username }: { username: string }) {
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
       <div className="mx-auto max-w-4xl px-4 py-10">
-        {/* Back link */}
         <a href="/recipes" className="mb-8 inline-flex items-center gap-1 text-sm text-gray-500 hover:text-brand-400">
           ← All Recipes
         </a>
 
-        {/* Profile header */}
-        <div className="flex items-center gap-6 mb-10">
-          {profile.avatar_url ? (
-            <img src={profile.avatar_url} alt={profile.display_name} className="h-20 w-20 rounded-full object-cover" />
-          ) : (
-            <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-brand-500 text-2xl font-bold text-white">
-              {initials}
+        {/* Edit profile form */}
+        {editing ? (
+          <form onSubmit={saveProfile} className="mb-10 rounded-2xl border border-gray-700 bg-gray-900 p-6">
+            <h2 className="mb-4 text-lg font-bold">Edit Profile</h2>
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-gray-400">Display name</label>
+                <input value={editName} onChange={e => setEditName(e.target.value)} maxLength={120}
+                  className="rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-gray-400">Avatar URL</label>
+                <input value={editAvatar} onChange={e => setEditAvatar(e.target.value)} placeholder="https://…"
+                  className="rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-gray-400">Bio <span className="text-gray-600">(max 500 chars)</span></label>
+                <textarea rows={3} value={editBio} onChange={e => setEditBio(e.target.value)} maxLength={500}
+                  className="rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div className="flex gap-3">
+                <button type="submit" disabled={saving}
+                  className="rounded-lg bg-brand-500 px-5 py-2 text-sm font-semibold text-white hover:bg-brand-600 disabled:opacity-50">
+                  {saving ? "Saving…" : "Save"}
+                </button>
+                <button type="button" onClick={() => setEditing(false)}
+                  className="rounded-lg bg-gray-800 px-5 py-2 text-sm hover:bg-gray-700">
+                  Cancel
+                </button>
+              </div>
             </div>
-          )}
-          <div>
-            <h1 className="text-2xl font-bold">{profile.display_name}</h1>
-            <p className="text-sm text-gray-500">@{profile.username}</p>
-            {profile.joined && (
-              <p className="text-xs text-gray-600 mt-1">Member since {new Date(profile.joined).toLocaleDateString("en-AU", { year: "numeric", month: "long" })}</p>
+          </form>
+        ) : (
+          /* Profile header */
+          <div className="flex items-start gap-6 mb-10">
+            {profile.avatar_url ? (
+              <img src={profile.avatar_url} alt={profile.display_name} className="h-20 w-20 rounded-full object-cover shrink-0" />
+            ) : (
+              <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-brand-500 text-2xl font-bold text-white">
+                {initials}
+              </div>
             )}
-            <div className="mt-2 flex gap-4 text-sm text-gray-400">
-              <span>📖 {profile.recipe_count} recipe{profile.recipe_count !== 1 ? "s" : ""}</span>
-              <span>👍 {profile.total_upvotes} upvote{profile.total_upvotes !== 1 ? "s" : ""}</span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-2xl font-bold">{profile.display_name}</h1>
+                {canEdit && (
+                  <button onClick={startEdit}
+                    className="rounded-lg border border-gray-700 px-3 py-1 text-xs text-gray-400 hover:border-brand-500 hover:text-brand-400">
+                    ✏️ Edit profile
+                  </button>
+                )}
+                {isAdmin && (
+                  <button onClick={openBadgeAdmin}
+                    className="rounded-lg border border-yellow-700 px-3 py-1 text-xs text-yellow-500 hover:border-yellow-500">
+                    🛡️ Manage badges
+                  </button>
+                )}
+              </div>
+              <p className="text-sm text-gray-500">@{profile.username}</p>
+              {profile.joined && (
+                <p className="text-xs text-gray-600 mt-1">Member since {new Date(profile.joined).toLocaleDateString("en-AU", { year: "numeric", month: "long" })}</p>
+              )}
+              {profile.bio && <p className="mt-2 text-sm text-gray-300">{profile.bio}</p>}
+              <div className="mt-2 flex gap-4 text-sm text-gray-400">
+                <span>📖 {profile.recipe_count} recipe{profile.recipe_count !== 1 ? "s" : ""}</span>
+                <span>👍 {profile.total_upvotes} upvote{profile.total_upvotes !== 1 ? "s" : ""}</span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
+
+        {/* Admin badge manager */}
+        {adminBadges && (
+          <div className="mb-10 rounded-2xl border border-yellow-700 bg-gray-900 p-6">
+            <h2 className="mb-1 text-lg font-bold">Manage Badges — {profile.display_name}</h2>
+            <p className="mb-4 text-xs text-gray-500">Toggled badges are manually granted (on top of auto-earned ones).</p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+              {ALL_BADGE_IDS.map(b => (
+                <button key={b.id} type="button" onClick={() => toggleBadge(b.id)}
+                  className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-left text-sm transition ${selectedBadges.includes(b.id) ? "border-yellow-500 bg-yellow-900/30 text-yellow-300" : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-500"}`}>
+                  <span>{b.icon}</span>
+                  <span className="text-xs">{b.name}</span>
+                </button>
+              ))}
+            </div>
+            <div className="mt-4 flex gap-3">
+              <button onClick={saveBadges} disabled={savingBadges}
+                className="rounded-lg bg-yellow-600 px-5 py-2 text-sm font-semibold text-white hover:bg-yellow-500 disabled:opacity-50">
+                {savingBadges ? "Saving…" : "Save badges"}
+              </button>
+              <button onClick={() => setAdminBadges(false)}
+                className="rounded-lg bg-gray-800 px-5 py-2 text-sm hover:bg-gray-700">
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Badges */}
         {profile.badges.length > 0 && (

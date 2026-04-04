@@ -526,6 +526,16 @@ function RecipeDetailView({ slug }: { slug: string }) {
   const isAdmin = userId === 1;
   const isOwner = recipe ? (isAdmin || recipe.author_id === userId) : false;
 
+  // Auto-open edit mode when navigated with ?edit=1 (e.g. after fork)
+  useEffect(() => {
+    if (!recipe || !isOwner) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("edit") === "1") {
+      window.history.replaceState({}, "", window.location.pathname);
+      startEdit();
+    }
+  }, [recipe, isOwner]);
+
   function getUserId(): number | null {
     const token = localStorage.getItem("rh_token");
     if (!token) return null;
@@ -610,7 +620,8 @@ function RecipeDetailView({ slug }: { slug: string }) {
     }
     try {
       const forked = await api.post<RecipeDetail>(`/recipes/${recipe.slug}/fork`, {});
-      window.location.href = `/recipes/${(forked as any).slug}`;
+      // Navigate with ?edit=1 so the fork lands directly in edit mode
+      window.location.href = `/recipes/${(forked as any).slug}?edit=1`;
     } catch (e: any) { alert(e.message); }
   }
 

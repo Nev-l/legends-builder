@@ -458,89 +458,6 @@ function CreateRecipeForm({ onClose, onCreated }: { onClose: () => void; onCreat
         </form>
       </div>
 
-      {/* Print recipe card button */}
-      <div className="mt-6 flex justify-end">
-        <button
-          onClick={() => window.print()}
-          className="rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-400 hover:border-brand-500 hover:text-brand-400"
-        >
-          🖨️ Print recipe card
-        </button>
-      </div>
-
-      {/* Print-only recipe card */}
-      <div className="hidden print:block" id="recipe-print">
-        <style>{`
-          @media print {
-            body * { visibility: hidden; }
-            #recipe-print, #recipe-print * { visibility: visible; }
-            #recipe-print { position: absolute; top: 0; left: 0; width: 100%; font-family: Georgia, serif; color: #000; padding: 24px; }
-            .rp-header { border-bottom: 3px solid #e67e22; padding-bottom: 12px; margin-bottom: 16px; }
-            .rp-title { font-size: 28px; font-weight: 700; margin: 0 0 4px; }
-            .rp-meta { font-size: 12px; color: #666; margin: 0; }
-            .rp-tags { margin-top: 6px; }
-            .rp-tag { display: inline-block; background: #fff3e0; color: #e67e22; border: 1px solid #e67e22; border-radius: 20px; padding: 1px 8px; font-size: 10px; margin-right: 4px; text-transform: capitalize; }
-            .rp-image { width: 100%; max-height: 220px; object-fit: cover; border-radius: 8px; margin-bottom: 16px; }
-            .rp-desc { font-size: 13px; color: #444; margin-bottom: 16px; font-style: italic; }
-            .rp-cols { display: grid; grid-template-columns: 1fr 2fr; gap: 24px; }
-            .rp-section-title { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 2px solid #e67e22; padding-bottom: 4px; margin-bottom: 8px; }
-            .rp-ingr-list { list-style: none; padding: 0; margin: 0; font-size: 12px; }
-            .rp-ingr-list li { padding: 3px 0; border-bottom: 1px solid #eee; }
-            .rp-steps { padding: 0; margin: 0; font-size: 12px; }
-            .rp-step { display: flex; gap: 8px; margin-bottom: 10px; }
-            .rp-step-num { min-width: 22px; height: 22px; background: #e67e22; color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
-            .rp-footer { margin-top: 16px; border-top: 1px solid #ddd; padding-top: 8px; font-size: 10px; color: #999; display: flex; justify-content: space-between; }
-          }
-        `}</style>
-        <div className="rp-header">
-          <h1 className="rp-title">{recipe.title}</h1>
-          <p className="rp-meta">
-            {recipe.prep_minutes != null && `Prep: ${recipe.prep_minutes} min  `}
-            {recipe.cook_minutes != null && `Cook: ${recipe.cook_minutes} min  `}
-            Serves {recipe.servings}
-            {recipe.calories != null && `  ·  ${Math.round(recipe.calories)} kcal/serving`}
-          </p>
-          {recipe.diet_tags.length > 0 && (
-            <div className="rp-tags">
-              {recipe.diet_tags.map(t => <span key={t} className="rp-tag">{t.replace(/_/g, " ")}</span>)}
-            </div>
-          )}
-        </div>
-        {recipe.image_url && <img src={recipe.image_url} alt={recipe.title} className="rp-image" />}
-        {recipe.description && <p className="rp-desc">{recipe.description}</p>}
-        <div className="rp-cols">
-          <div>
-            <div className="rp-section-title">Ingredients</div>
-            <ul className="rp-ingr-list">
-              {recipe.ingredients.map((ing, i) => (
-                <li key={i}>
-                  {ing.quantity != null ? `${ing.quantity}${ing.unit ? ` ${ing.unit}` : ""} ` : ""}
-                  {ing.name}{ing.note ? `, ${ing.note}` : ""}
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div>
-            <div className="rp-section-title">Method</div>
-            <ol className="rp-steps">
-              {recipe.steps.map(step => (
-                <li key={step.id} className="rp-step">
-                  <span className="rp-step-num">{step.position}</span>
-                  <span>{step.body}</span>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </div>
-        <div className="rp-footer">
-          <span>RecipeHub — 0k.au/recipes</span>
-          {recipe.author_username && <span>Recipe by {recipe.author_display_name || recipe.author_username}</span>}
-          {recipe.source_url && <span>Source: {recipe.source_url}</span>}
-        </div>
-      </div>
-
-      {/* Comments */}
-      <CommentsSection slug={recipe.slug} />
     </div>
   );
 }
@@ -1006,6 +923,90 @@ function RecipeDetailView({ slug }: { slug: string }) {
             ))}
           </ol>
         </section>
+      </div>
+
+      {/* Print recipe card button */}
+      <div className="mt-8 flex justify-end">
+        <button
+          onClick={() => window.print()}
+          className="rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-400 hover:border-brand-500 hover:text-brand-400"
+        >
+          🖨️ Print recipe card
+        </button>
+      </div>
+
+      {/* Comments */}
+      <CommentsSection slug={recipe.slug} />
+
+      {/* Print-only recipe card */}
+      <div className="hidden print:block" id="recipe-print">
+        <style>{`
+          @media print {
+            body * { visibility: hidden; }
+            #recipe-print, #recipe-print * { visibility: visible; }
+            #recipe-print { position: absolute; top: 0; left: 0; width: 100%; font-family: Georgia, serif; color: #000; padding: 24px; }
+            .rp-header { border-bottom: 3px solid #e67e22; padding-bottom: 12px; margin-bottom: 16px; }
+            .rp-title { font-size: 28px; font-weight: 700; margin: 0 0 4px; }
+            .rp-meta { font-size: 12px; color: #666; margin: 0; }
+            .rp-tags { margin-top: 6px; }
+            .rp-tag { display: inline-block; background: #fff3e0; color: #e67e22; border: 1px solid #e67e22; border-radius: 20px; padding: 1px 8px; font-size: 10px; margin-right: 4px; text-transform: capitalize; }
+            .rp-image { width: 100%; max-height: 220px; object-fit: cover; border-radius: 8px; margin-bottom: 16px; }
+            .rp-desc { font-size: 13px; color: #444; margin-bottom: 16px; font-style: italic; }
+            .rp-cols { display: grid; grid-template-columns: 1fr 2fr; gap: 24px; }
+            .rp-section-title { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 2px solid #e67e22; padding-bottom: 4px; margin-bottom: 8px; }
+            .rp-ingr-list { list-style: none; padding: 0; margin: 0; font-size: 12px; }
+            .rp-ingr-list li { padding: 3px 0; border-bottom: 1px solid #eee; }
+            .rp-steps { padding: 0; margin: 0; font-size: 12px; }
+            .rp-step { display: flex; gap: 8px; margin-bottom: 10px; }
+            .rp-step-num { min-width: 22px; height: 22px; background: #e67e22; color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
+            .rp-footer { margin-top: 16px; border-top: 1px solid #ddd; padding-top: 8px; font-size: 10px; color: #999; display: flex; justify-content: space-between; }
+          }
+        `}</style>
+        <div className="rp-header">
+          <h1 className="rp-title">{recipe.title}</h1>
+          <p className="rp-meta">
+            {recipe.prep_minutes != null && `Prep: ${recipe.prep_minutes} min  `}
+            {recipe.cook_minutes != null && `Cook: ${recipe.cook_minutes} min  `}
+            Serves {recipe.servings}
+            {(recipe as any).calories != null && `  ·  ${Math.round((recipe as any).calories)} kcal/serving`}
+          </p>
+          {recipe.diet_tags.length > 0 && (
+            <div className="rp-tags">
+              {recipe.diet_tags.map(t => <span key={t} className="rp-tag">{t.replace(/_/g, " ")}</span>)}
+            </div>
+          )}
+        </div>
+        {recipe.image_url && <img src={recipe.image_url} alt={recipe.title} className="rp-image" />}
+        {recipe.description && <p className="rp-desc">{recipe.description}</p>}
+        <div className="rp-cols">
+          <div>
+            <div className="rp-section-title">Ingredients</div>
+            <ul className="rp-ingr-list">
+              {recipe.ingredients.map((ing, i) => (
+                <li key={i}>
+                  {ing.quantity != null ? `${ing.quantity}${ing.unit ? ` ${ing.unit}` : ""} ` : ""}
+                  {ing.name}{ing.note ? `, ${ing.note}` : ""}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <div className="rp-section-title">Method</div>
+            <ol className="rp-steps">
+              {recipe.steps.map(step => (
+                <li key={step.id} className="rp-step">
+                  <span className="rp-step-num">{step.position}</span>
+                  <span>{step.body}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </div>
+        <div className="rp-footer">
+          <span>RecipeHub — 0k.au/recipes</span>
+          {recipe.author_username && <span>Recipe by {recipe.author_display_name || recipe.author_username}</span>}
+          {recipe.source_url && <span>Source: {recipe.source_url}</span>}
+        </div>
       </div>
     </div>
   );

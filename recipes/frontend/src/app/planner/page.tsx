@@ -384,6 +384,13 @@ export default function PlannerPage() {
                 <h2 className="text-lg font-bold">Grocery list</h2>
                 <div className="flex gap-2">
                   <button
+                    onClick={() => window.print()}
+                    className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs hover:bg-gray-700"
+                    title="Print / Save as PDF"
+                  >
+                    🖨️ Print / PDF
+                  </button>
+                  <button
                     onClick={async () => {
                       for (const g of grocery) {
                         if (!addedToPantry.has(g.ingredient)) await addToPantry(g.ingredient);
@@ -438,6 +445,109 @@ export default function PlannerPage() {
             </section>
           )}
         </>
+      )}
+
+      {/* ── Print-only view ─────────────────────────────────────── */}
+      {plan && (
+        <div className="hidden print:block print-view">
+          <style>{`
+            @media print {
+              body * { visibility: hidden; }
+              .print-view, .print-view * { visibility: visible; }
+              .print-view { position: absolute; top: 0; left: 0; width: 100%; font-family: sans-serif; color: #000; }
+              .print-section { page-break-inside: avoid; margin-bottom: 24px; }
+              .print-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+              .print-table th, .print-table td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; }
+              .print-table th { background: #f0f0f0; font-weight: 600; }
+              .recipe-card { border: 1px solid #ccc; border-radius: 6px; padding: 10px; margin: 6px; display: inline-block; width: 45%; vertical-align: top; font-size: 11px; }
+              .recipe-card h3 { font-size: 13px; margin: 0 0 4px; }
+              .recipe-card ul { padding-left: 16px; margin: 4px 0; }
+              .grocery-cols { columns: 3; column-gap: 16px; }
+              .grocery-item { break-inside: avoid; padding: 2px 0; border-bottom: 1px solid #eee; font-size: 12px; }
+              .grocery-cat { font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 12px; margin-bottom: 4px; color: #555; }
+            }
+          `}</style>
+
+          <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>
+            Meal Plan — Week of {ws}
+          </h1>
+          <p style={{ fontSize: 12, color: "#555", marginBottom: 16 }}>
+            Calorie goal: {calorieGoal} kcal/day
+          </p>
+
+          {/* Weekly grid */}
+          <div className="print-section">
+            <table className="print-table">
+              <thead>
+                <tr>
+                  <th>Slot</th>
+                  {DAYS.map(d => <th key={d}>{d}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {SLOTS.map(slot => (
+                  <tr key={slot}>
+                    <td style={{ fontWeight: 600, textTransform: "capitalize" }}>{slot}</td>
+                    {DAYS.map((_, di) => {
+                      const items = plan.items.filter(i => i.day_of_week === di && i.slot === slot);
+                      return (
+                        <td key={di}>
+                          {items.map(i => (
+                            <div key={i.id} style={{ fontSize: 10, lineHeight: 1.3 }}>
+                              {i.recipe.title}
+                              {i.recipe.calories ? ` (${Math.round((i.recipe.calories / (i.recipe.servings ?? 1)) * i.servings)} kcal)` : ""}
+                            </div>
+                          ))}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Recipe cards */}
+          {plan.items.length > 0 && (
+            <div className="print-section">
+              <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>Recipe Cards</h2>
+              <div>
+                {Array.from(new Map(plan.items.map(i => [i.recipe.slug, i.recipe])).values()).map(r => (
+                  <div key={r.slug} className="recipe-card">
+                    <h3>{r.title}</h3>
+                    {r.calories && <p style={{ margin: "2px 0", color: "#555" }}>{Math.round(r.calories)} kcal/serving</p>}
+                    <a href={`https://0k.au/recipes/${r.slug}`} style={{ fontSize: 10, color: "#666" }}>
+                      0k.au/recipes/{r.slug}
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Grocery list */}
+          {grocery && grocery.length > 0 && (
+            <div className="print-section">
+              <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>Shopping List</h2>
+              {(["Meat & Seafood", "Produce", "Dairy", "Pantry & Other"] as const).map(cat => {
+                const items = grocery.filter(g => g.category === cat);
+                if (!items.length) return null;
+                return (
+                  <div key={cat}>
+                    <div className="grocery-cat">{cat}</div>
+                    <div className="grocery-cols">
+                      {items.map(g => (
+                        <div key={g.ingredient} className="grocery-item">
+                          ☐ {g.ingredient}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Add-meal modal */}

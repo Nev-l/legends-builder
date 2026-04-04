@@ -39,11 +39,14 @@ interface RecipeResult {
 
 function weekStart(offset = 0) {
   const d = new Date();
-  const day = d.getDay();
+  const day = d.getDay(); // 0=Sun … 6=Sat
   const diff = (day === 0 ? -6 : 1 - day) + offset * 7;
   d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString().slice(0, 10);
+  // Format using local date to avoid UTC offset shifting the day
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 function caloriesForDay(items: MealPlanItem[], dayIdx: number): number {
@@ -96,7 +99,7 @@ export default function PlannerPage() {
 
   async function createPlan() {
     await api.post("/meal-planner", { week_start: ws, items: [] });
-    mutatePlans();
+    await mutatePlans();
   }
 
   function cellItem(day: number, slot: Slot): MealPlanItem | undefined {

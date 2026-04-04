@@ -84,6 +84,8 @@ export default function Home() {
 
 // ── Recipe list ──────────────────────────────────────────────────────────────
 
+const PAGE_SIZE = 40;
+
 function RecipeList() {
   const [sort, setSort] = useState<(typeof SORTS)[number]>("trending");
   const [diet, setDiet] = useState("");
@@ -91,8 +93,14 @@ function RecipeList() {
   const [search, setSearch] = useState("");
   const [scraping, setScraping] = useState(false);
   const [scrapeError, setScrapeError] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [page, setPage] = useState(0);
+  const isLoggedIn = typeof window !== "undefined" && !!localStorage.getItem("rh_token");
 
-  const swrKey = `/recipes?sort=${sort}${search ? `&q=${encodeURIComponent(search)}` : ""}${diet ? `&diet=${diet}` : ""}`;
+  // Reset to page 0 whenever filters change
+  function changeFilter(fn: () => void) { fn(); setPage(0); }
+
+  const swrKey = `/recipes?sort=${sort}&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}${search ? `&q=${encodeURIComponent(search)}` : ""}${diet ? `&diet=${diet}` : ""}`;
   const { data: recipes, isLoading, mutate } = useSWR<Recipe[]>(
     swrKey,
     (url: string) => api.get<Recipe[]>(url.replace("/recipes/api", ""))
@@ -125,6 +133,7 @@ function RecipeList() {
       }
     } else {
       setSearch(q.trim());
+      setPage(0);
     }
   }
 
@@ -159,7 +168,7 @@ function RecipeList() {
           {SORTS.map((s) => (
             <button
               key={s}
-              onClick={() => setSort(s)}
+              onClick={() => changeFilter(() => setSort(s))}
               className={`rounded-lg px-4 py-2.5 text-sm font-medium capitalize transition ${
                 sort === s
                   ? "bg-brand-500 text-white"
@@ -173,10 +182,11 @@ function RecipeList() {
       </div>
       {scrapeError && <p className="mb-4 text-sm text-red-400">{scrapeError}</p>}
 
-      {/* Diet filters */}
-      <div className="mb-6 flex flex-wrap gap-2">
+      {/* Diet filters + Create button */}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
         <button
-          onClick={() => setDiet("")}
+          onClick={() => changeFilter(() => setDiet(""))}
           className={`rounded-full px-3 py-1 text-xs font-medium transition ${
             !diet ? "bg-brand-500 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white"
           }`}
@@ -186,7 +196,7 @@ function RecipeList() {
         {DIETS.map((d) => (
           <button
             key={d.key}
-            onClick={() => setDiet(diet === d.key ? "" : d.key)}
+            onClick={() => changeFilter(() => setDiet(diet === d.key ? "" : d.key))}
             className={`rounded-full px-3 py-1 text-xs font-medium transition ${
               diet === d.key ? "bg-brand-500 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white"
             }`}
@@ -194,21 +204,185 @@ function RecipeList() {
             {d.label}
           </button>
         ))}
+        </div>
+        {isLoggedIn && (
+          <button
+            onClick={() => setCreating(true)}
+            className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600 whitespace-nowrap"
+          >
+            + Create recipe
+          </button>
+        )}
       </div>
+
+      {creating && (
+        <CreateRecipeForm
+          onClose={() => setCreating(false)}
+          onCreated={(slug) => { window.location.href = `/recipes/${slug}`; }}
+        />
+      )}
 
       {isLoading ? (
         <p className="text-center text-gray-500">Loading…</p>
       ) : (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {recipes?.map((r) => <RecipeCard key={r.id} recipe={r} />)}
-          {recipes?.length === 0 && (
-            <p className="col-span-full text-center text-gray-500">
-              No recipes found.{" "}
-              {!search && <span className="text-gray-600">Paste a recipe URL above to add one.</span>}
-            </p>
+        <>
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {recipes?.map((r) => <RecipeCard key={r.id} recipe={r} />)}
+            {recipes?.length === 0 && (
+              <p className="col-span-full text-center text-gray-500">
+                No recipes found.{" "}
+                {!search && <span className="text-gray-600">Paste a recipe URL above to add one.</span>}
+              </p>
+            )}
+          </div>
+          {/* Pagination */}
+          {(recipes?.length === PAGE_SIZE || page > 0) && (
+            <div className="mt-8 flex items-center justify-center gap-2">
+              <button
+                disabled={page === 0}
+                onClick={() => { setPage(p => p - 1); window.scrollTo(0, 0); }}
+                className="rounded-lg bg-gray-800 px-4 py-2 text-sm hover:bg-gray-700 disabled:opacity-40"
+              >
+                ← Prev
+              </button>
+              <span className="px-3 text-sm text-gray-400">Page {page + 1}</span>
+              <button
+                disabled={!recipes || recipes.length < PAGE_SIZE}
+                onClick={() => { setPage(p => p + 1); window.scrollTo(0, 0); }}
+                className="rounded-lg bg-gray-800 px-4 py-2 text-sm hover:bg-gray-700 disabled:opacity-40"
+              >
+                Next →
+              </button>
+            </div>
           )}
-        </div>
+        </>
       )}
+    </div>
+  );
+}
+
+// ── Create Recipe Form ───────────────────────────────────────────────────────
+
+function CreateRecipeForm({ onClose, onCreated }: { onClose: () => void; onCreated: (slug: string) => void }) {
+  const [title, setTitle]       = useState("");
+  const [desc, setDesc]         = useState("");
+  const [image, setImage]       = useState("");
+  const [prep, setPrep]         = useState("");
+  const [cook, setCook]         = useState("");
+  const [servings, setServings] = useState("4");
+  const [diets, setDiets]       = useState<string[]>([]);
+  const [ingredients, setIngredients] = useState("");
+  const [steps, setSteps]       = useState("");
+  const [saving, setSaving]     = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!title.trim()) return;
+    setSaving(true);
+    try {
+      const body = {
+        title: title.trim(),
+        description: desc.trim() || null,
+        image_url: image.trim() || null,
+        prep_minutes: prep ? parseInt(prep) : null,
+        cook_minutes: cook ? parseInt(cook) : null,
+        servings: parseInt(servings) || 4,
+        diet_tags: diets,
+        ingredients: ingredients.split("\n").filter(Boolean).map(line => ({ name: line.trim() })),
+        steps: steps.split(/\n\n+/).filter(Boolean).map(s => ({ body: s.trim() })),
+      };
+      const created = await api.post<{ slug: string }>("/recipes", body);
+      onCreated((created as any).slug);
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 pt-10" onClick={onClose}>
+      <div className="w-full max-w-2xl rounded-2xl border border-gray-700 bg-gray-950 p-6" onClick={e => e.stopPropagation()}>
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="text-xl font-extrabold">Create Recipe</h2>
+          <button onClick={onClose} className="text-sm text-gray-500 hover:text-white">✕ Cancel</button>
+        </div>
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-1 sm:col-span-2">
+              <label className="text-xs text-gray-400">Title *</label>
+              <input required value={title} onChange={e => setTitle(e.target.value)}
+                placeholder="e.g. Garlic Butter Steak"
+                className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+            <div className="flex flex-col gap-1 sm:col-span-2">
+              <label className="text-xs text-gray-400">Image URL</label>
+              <input value={image} onChange={e => setImage(e.target.value)}
+                placeholder="https://…"
+                className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-400">Prep time (mins)</label>
+              <input type="number" min="0" value={prep} onChange={e => setPrep(e.target.value)}
+                className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-400">Cook time (mins)</label>
+              <input type="number" min="0" value={cook} onChange={e => setCook(e.target.value)}
+                className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-400">Servings</label>
+              <input type="number" min="1" value={servings} onChange={e => setServings(e.target.value)}
+                className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-400">Description</label>
+            <textarea rows={2} value={desc} onChange={e => setDesc(e.target.value)}
+              className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-xs text-gray-400">Dietary tags <span className="text-gray-600">(select all that apply)</span></label>
+            <div className="flex flex-wrap gap-2">
+              {ALL_DIET_TAGS.map(tag => (
+                <button key={tag} type="button"
+                  onClick={() => setDiets(d => d.includes(tag) ? d.filter(x => x !== tag) : [...d, tag])}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition ${diets.includes(tag) ? "bg-brand-500 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700"}`}>
+                  {tag.replace(/_/g, " ")}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-400">Ingredients <span className="text-gray-600">(one per line, e.g. "2 cups flour")</span></label>
+            <textarea rows={8} value={ingredients} onChange={e => setIngredients(e.target.value)}
+              placeholder={"500g chicken breast\n2 tbsp olive oil\n3 cloves garlic\nsalt and pepper"}
+              className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-400">Steps <span className="text-gray-600">(separate steps with a blank line)</span></label>
+            <textarea rows={8} value={steps} onChange={e => setSteps(e.target.value)}
+              placeholder={"Preheat oven to 200°C.\n\nSeason chicken with salt, pepper, and garlic.\n\nBake for 25 minutes until golden."}
+              className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button type="submit" disabled={saving}
+              className="rounded-lg bg-brand-500 px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-600 disabled:opacity-50">
+              {saving ? "Creating…" : "Create recipe"}
+            </button>
+            <button type="button" onClick={onClose}
+              className="rounded-lg bg-gray-800 px-6 py-2.5 text-sm hover:bg-gray-700">
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
@@ -254,7 +428,7 @@ function RecipeCard({ recipe: r }: { recipe: Recipe }) {
 
 // ── Recipe detail ────────────────────────────────────────────────────────────
 
-const ALL_DIET_TAGS = ["gluten_free","dairy_free","vegan","vegetarian","high_protein","low_carb","nut_free","keto","carnivore","paleo"];
+const ALL_DIET_TAGS = ["keto","carnivore","vegan","vegetarian","paleo","high_protein","low_carb","gluten_free","dairy_free","nut_free"];
 
 function RecipeDetailView({ slug }: { slug: string }) {
   const [servings, setServings] = useState<number | null>(null);

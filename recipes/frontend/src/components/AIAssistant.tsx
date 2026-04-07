@@ -242,7 +242,7 @@ export default function AIAssistant() {
     send(summary);
   }
 
-  async function applyPlanToPlanner() {
+  async function applyPlanToPlanner(replace = false) {
     if (!isLoggedIn) { alert("Sign in to save your meal plan!"); return; }
     setApplyingPlan(true);
 
@@ -250,7 +250,6 @@ export default function AIAssistant() {
       const stats = calcTDEE(profile);
       const dailyCal = stats?.target || 2000;
 
-      // Calorie targets per slot (rough split: B25% L30% D35% S10%)
       const slotCals = {
         breakfast: Math.round(dailyCal * 0.25),
         lunch:     Math.round(dailyCal * 0.30),
@@ -258,14 +257,13 @@ export default function AIAssistant() {
         snack:     Math.round(dailyCal * 0.10),
       };
 
-      // Fetch real recipes from our DB for each slot (get enough variety for 7 days)
       const slots = ["breakfast", "lunch", "dinner", "snack"] as const;
       const recipePool: Record<string, { slug: string; title: string }[]> = {};
 
       await Promise.all(slots.map(async slot => {
         const cal = slotCals[slot];
         const res = await api.get<{ slug: string; title: string }[]>(
-          `/meal-planner/recommend?calorie_target=${cal}&slot=${slot}&limit=14`
+          `/meal-planner/recommend?calorie_target=${cal}&slot=${slot}&limit=21`
         );
         recipePool[slot] = Array.isArray(res) ? res : [];
       }));
@@ -281,7 +279,20 @@ export default function AIAssistant() {
       const created: any = await api.post("/meal-planner", { week_start: weekStart, items: [] });
       const planId = created.id;
 
-      // Fill 7 days, rotating through the pool
+      // Clear existing items if replacing
+      if (replace) {
+        await api.delete(`/meal-planner/${planId}/items`);
+      }
+
+      // Shuffle pool so revisions give different recipes
+      for (const slot of slots) {
+        const pool = recipePool[slot];
+        for (let i = pool.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [pool[i], pool[j]] = [pool[j], pool[i]];
+        }
+      }
+
       let added = 0;
       for (let dayNum = 0; dayNum < 7; dayNum++) {
         for (const slot of slots) {
@@ -302,7 +313,7 @@ export default function AIAssistant() {
 
       setMessages(prev => [...prev, {
         role: "assistant",
-        content: `✅ Done, Amigo! I've filled your planner with ${added} real meals from the RecipeHub database targeting ~${dailyCal} kcal/day.\n\nHead to the Meal Planner to see it — swap anything you don't fancy! 🍳`,
+        content: `✅ ${replace ? "Plan revised" : "Plan created"}, Amigo!\n\n• ${added} meals filled targeting ~${dailyCal} kcal/day\n• Head to the Meal Planner to review it\n• Not happy with something? Hit Revise for a fresh set! 🍳`,
       }]);
     } catch (e: any) {
       setMessages(prev => [...prev, {
@@ -484,12 +495,16 @@ export default function AIAssistant() {
             )}
           </div>
 
-          {/* Apply plan button */}
+          {/* Apply / Revise plan buttons */}
           {hasPlan && isLoggedIn && (
-            <div className="border-t border-gray-800 px-4 py-2">
-              <button onClick={applyPlanToPlanner} disabled={applyingPlan}
-                className="w-full rounded-xl bg-green-600 py-2.5 text-xs font-bold text-white hover:bg-green-500 disabled:opacity-50 transition-colors">
-                {applyingPlan ? "⏳ Filling your planner…" : "🗓 Add this plan to my Meal Planner"}
+            <div className="border-t border-gray-800 px-4 py-2 flex gap-2">
+              <button onClick={() => applyPlanToPlanner(false)} disabled={applyingPlan}
+                className="flex-1 rounded-xl bg-green-600 py-2.5 text-xs font-bold text-white hover:bg-green-500 disabled:opacity-50 transition-colors">
+                {applyingPlan ? "⏳ Working…" : "🗓 Fill Planner"}
+              </button>
+              <button onClick={() => applyPlanToPlanner(true)} disabled={applyingPlan}
+                className="flex-1 rounded-xl bg-orange-600 py-2.5 text-xs font-bold text-white hover:bg-orange-500 disabled:opacity-50 transition-colors">
+                {applyingPlan ? "⏳ Working…" : "🔄 Revise (replace all)"}
               </button>
             </div>
           )}

@@ -212,6 +212,24 @@ async def remove_item(
     await db.commit()
 
 
+@router.delete("/{plan_id}/items", status_code=204)
+async def clear_plan_items(
+    plan_id: int,
+    user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove all items from a plan (for Raul replace/revise)."""
+    plan = await db.scalar(
+        select(MealPlan).where(MealPlan.id == plan_id, MealPlan.user_id == user_id)
+        .options(selectinload(MealPlan.items))
+    )
+    if not plan:
+        raise HTTPException(404, "Plan not found")
+    for item in plan.items:
+        await db.delete(item)
+    await db.commit()
+
+
 import re as _re
 
 # ── Grocery list helpers ──────────────────────────────────────────────────────
@@ -279,9 +297,82 @@ _PANTRY_WORDS  = {"pasta","rice","noodle","noodles","bread","flour","sugar",
                   "coconut cream","vine leaves","breadcrumbs","panko"}
 
 
+_US_UNIT_CONVERSIONS = {
+    # volume
+    "fl oz": "ml", "fluid oz": "ml", "fluid ounce": "ml", "fluid ounces": "ml",
+    "oz": "g",     "ounce": "g",     "ounces": "g",
+    "lb": "g",     "lbs": "g",       "pound": "g",  "pounds": "g",
+    "cup": "ml",   "cups": "ml",
+    "pint": "ml",  "pints": "ml",
+    "quart": "L",  "quarts": "L",
+    "gallon": "L", "gallons": "L",
+    "stick": "g",  # butter sticks
+    "sticks": "g",
+}
+
+_US_QTY_RE = _re.compile(
+    r"^([\d/ \.]+)\s*(fl oz|fluid oz(?:ce)?s?|ounces?|oz|pounds?|lbs?|cups?|pints?|quarts?|gallons?|sticks?)\b",
+    _re.IGNORECASE,
+)
+
+_US_CONVERSIONS_FACTOR = {
+    "fl oz": 29.57, "fluid oz": 29.57, "fluid ounce": 29.57, "fluid ounces": 29.57,
+    "oz": 28.35, "ounce": 28.35, "ounces": 28.35,
+    "lb": 453.6, "lbs": 453.6, "pound": 453.6, "pounds": 453.6,
+    "cup": 250.0, "cups": 250.0,
+    "pint": 473.0, "pints": 473.0,
+    "quart": 0.946, "quarts": 0.946,
+    "gallon": 3.785, "gallons": 3.785,
+    "stick": 113.0, "sticks": 113.0,
+}
+
+def _convert_us_units(s: str) -> str:
+    """Convert US measurements to metric in ingredient strings."""
+    m = _US_QTY_RE.match(s.strip())
+    if not m:
+        return s
+    qty_str, unit = m.group(1).strip(), m.group(2).strip().lower()
+    rest = s[m.end():].strip()
+    try:
+        # Handle fractions like 1/2, 1 1/2
+        parts = qty_str.split()
+        qty = 0.0
+        for p in parts:
+            if "/" in p:
+                n, d = p.split("/")
+                qty += float(n) / float(d)
+            else:
+                qty += float(p)
+    except (ValueError, ZeroDivisionError):
+        return s
+
+    factor = _US_CONVERSIONS_FACTOR.get(unit, 1.0)
+    metric_val = qty * factor
+    metric_unit = _US_UNIT_CONVERSIONS.get(unit, "g")
+
+    # Round nicely
+    if metric_val >= 100:
+        metric_val = round(metric_val / 5) * 5
+    elif metric_val >= 10:
+        metric_val = round(metric_val)
+    else:
+        metric_val = round(metric_val, 1)
+
+    # Choose better unit for large volumes
+    if metric_unit == "ml" and metric_val >= 1000:
+        metric_val = round(metric_val / 1000, 2)
+        metric_unit = "L"
+    elif metric_unit == "g" and metric_val >= 1000:
+        metric_val = round(metric_val / 1000, 2)
+        metric_unit = "kg"
+
+    return f"{metric_val}{metric_unit} {rest}".strip()
+
+
 def _clean_ingredient_name(raw: str) -> str:
     """Strip quantity, unit, price, and parentheticals from a raw ingredient string."""
     s = raw.strip()
+    s = _convert_us_units(s)      # convert US → metric first
     s = _PRICE_STRIP.sub("", s)   # remove ($x.xx)
     s = _PAREN_STRIP.sub("", s)   # remove (anything)
     s = _QTY_STRIP.sub("", s)     # remove leading qty+unit

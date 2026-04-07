@@ -1,7 +1,98 @@
 "use client";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import useSWR from "swr";
 import { api } from "@/lib/api";
+
+const COMMON_PANTRY = {
+  "Spices & Seasonings": [
+    "Salt", "Black pepper", "Chilli flakes", "Paprika", "Cumin", "Turmeric",
+    "Garlic powder", "Onion powder", "Oregano", "Thyme", "Rosemary", "Cinnamon",
+    "Nutmeg", "Cayenne", "Mixed herbs", "Curry powder", "Garam masala",
+  ],
+  "Oils & Condiments": [
+    "Olive oil", "Vegetable oil", "Coconut oil", "Butter", "White vinegar",
+    "Apple cider vinegar", "Soy sauce", "Fish sauce", "Worcestershire sauce",
+    "Tomato paste", "Dijon mustard", "Hot sauce", "Honey", "Maple syrup",
+  ],
+  "Baking & Dry Goods": [
+    "Plain flour", "Self-raising flour", "Baking powder", "Baking soda",
+    "Sugar", "Brown sugar", "Icing sugar", "Cornflour", "Rolled oats",
+    "Breadcrumbs", "Dried pasta", "White rice", "Basmati rice", "Lentils",
+  ],
+  "Canned & Jarred": [
+    "Canned tomatoes", "Coconut milk", "Chickpeas", "Kidney beans",
+    "Black beans", "Chicken stock", "Vegetable stock", "Tuna",
+    "Tomato sauce", "Peanut butter",
+  ],
+  "Kitchen Essentials": [
+    "Aluminium foil", "Baking paper", "Glad wrap", "Zip lock bags",
+    "Paper towel",
+  ],
+};
+
+function CommonPantryItems({ onAdd, existingItems }: {
+  onAdd: (name: string) => void;
+  existingItems: string[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [added, setAdded] = useState<Set<string>>(new Set());
+
+  function handleAdd(item: string) {
+    if (existingItems.includes(item.toLowerCase()) || added.has(item)) return;
+    onAdd(item);
+    setAdded(prev => new Set([...prev, item]));
+  }
+
+  return (
+    <div className="mb-6">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-2 rounded-xl border border-dashed border-gray-700 px-4 py-2.5 text-sm text-gray-400 hover:border-brand-500 hover:text-brand-400 transition-colors"
+      >
+        <span>🛒</span>
+        <span>{open ? "Hide" : "Add common pantry items"}</span>
+        <span className="ml-auto text-xs text-gray-600">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="mt-3 rounded-xl border border-gray-800 bg-gray-900 p-4">
+          <p className="mb-4 text-xs text-gray-500">Click items to add them to your pantry. Already-added items are greyed out.</p>
+          {Object.entries(COMMON_PANTRY).map(([cat, items]) => (
+            <div key={cat} className="mb-4">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">{cat}</p>
+              <div className="flex flex-wrap gap-2">
+                {items.map(item => {
+                  const isAdded = existingItems.includes(item.toLowerCase()) || added.has(item);
+                  return (
+                    <button
+                      key={item}
+                      onClick={() => handleAdd(item)}
+                      disabled={isAdded}
+                      className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                        isAdded
+                          ? "border-gray-800 bg-gray-800 text-gray-600 cursor-default"
+                          : "border-gray-700 bg-gray-800 text-gray-300 hover:border-brand-500 hover:text-brand-400"
+                      }`}
+                    >
+                      {isAdded ? "✓ " : "+ "}{item}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          <button
+            onClick={() => {
+              Object.values(COMMON_PANTRY).flat().forEach(item => handleAdd(item));
+            }}
+            className="mt-2 rounded-lg bg-brand-500/20 px-4 py-2 text-xs font-semibold text-brand-400 hover:bg-brand-500 hover:text-white transition-colors"
+          >
+            + Add all missing items
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface PantryItem {
   id: number;
@@ -239,6 +330,15 @@ export default function PantryPage() {
           {adding ? "Adding…" : "Add"}
         </button>
       </form>
+
+      {/* Common pantry items prefill */}
+      {isLoggedIn && (
+        <CommonPantryItems onAdd={(name) => {
+          api.post("/pantry", { ingredient_name: name, quantity: null, unit: null, expires_on: null })
+            .then(() => mutate())
+            .catch(() => {});
+        }} existingItems={items?.map(i => i.ingredient_name.toLowerCase()) ?? []} />
+      )}
 
       {/* Items list */}
       {isLoading ? (

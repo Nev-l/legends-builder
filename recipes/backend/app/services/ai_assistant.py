@@ -51,16 +51,46 @@ Be enthusiastic, be helpful, be Raul."""
 
 
 class AIAssistantService:
+    # Model priority list — try in order if rate limited
+    MODELS = [
+        "llama-3.3-70b-versatile",   # best quality
+        "llama3-8b-8192",            # fastest, rarely rate-limited
+        "gemma2-9b-it",              # Google's Gemma — good fallback
+        "mixtral-8x7b-32768",        # Mixtral — long context
+    ]
+
     def __init__(self):
         self.api_key = os.getenv("GROQ_API_KEY", "")
-        self.model = "llama-3.3-70b-versatile"  # Best free model on Groq
+        self.model = self.MODELS[0]
         self.status = "ready" if self.api_key else "no_key"
+
+    async def _call(self, messages: List[Dict], max_tokens: int = 1024) -> str:
+        """Try each model in order, falling back on rate limit."""
+        client = AsyncGroq(api_key=self.api_key)
+        last_err = ""
+        for model in self.MODELS:
+            try:
+                response = await client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=0.8,
+                    max_tokens=max_tokens,
+                )
+                return response.choices[0].message.content
+            except Exception as e:
+                err = str(e)
+                if "rate_limit" in err.lower() or "429" in err:
+                    last_err = f"rate limit on {model}"
+                    continue  # try next model
+                if "api_key" in err.lower() or "auth" in err.lower():
+                    return "Raul's key is wrong, Amigo! Check the GROQ_API_KEY in .env."
+                # Unexpected error — break
+                return f"Raul hit a snag: {err}"
+        return f"Raul's all models are rate-limited right now, Amigo! ({last_err}). Give it a minute and try again — too many cooks in the kitchen! 🍳"
 
     async def chat(self, message: str, history: List[Dict] = None) -> str:
         if not self.api_key:
             return "Raul needs a GROQ_API_KEY to cook, Amigo! Ask the admin to add one."
-
-        client = AsyncGroq(api_key=self.api_key)
 
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
@@ -72,22 +102,7 @@ class AIAssistantService:
                     messages.append({"role": role, "content": content})
 
         messages.append({"role": "user", "content": message})
-
-        try:
-            response = await client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=0.8,
-                max_tokens=1024,
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            err = str(e)
-            if "rate_limit" in err.lower():
-                return "Raul's a bit busy right now, Amigo — hit the rate limit. Try again in a moment!"
-            if "api_key" in err.lower() or "auth" in err.lower():
-                return "Raul's key is wrong, Amigo! Check the GROQ_API_KEY in .env."
-            return f"Raul hit a snag: {err}"
+        return await self._call(messages)
 
     async def generate_flexible_plan(self, user: User, db: AsyncSession, weeks: int = 1, diet_type: str = "keto") -> dict:
         prompt = f"""Build a {weeks}-week {diet_type} meal plan for someone with the following profile:
@@ -99,7 +114,8 @@ Activity: {getattr(user, 'activity_level', 'moderate')}
 Include daily calorie targets, macros, and a structured meal plan with breakfast, lunch, dinner and snacks.
 Format it clearly with days and totals."""
 
-        result = await self.chat(prompt)
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}]
+        result = await self._call(messages, max_tokens=2048)
         return {"plan": result, "weeks": weeks, "diet_type": diet_type}
 
 

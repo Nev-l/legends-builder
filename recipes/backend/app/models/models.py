@@ -42,6 +42,13 @@ class RatingValue(int, enum.Enum):
     up   = 1
     down = -1
 
+class UserRole(str, enum.Enum):
+    user          = "user"
+    vip           = "vip"
+    verified_chef = "verified_chef"
+    moderator     = "moderator"
+    admin         = "admin"
+
 
 # ── Users ─────────────────────────────────────────────────────────────────────
 
@@ -58,7 +65,17 @@ class User(Base):
     bio             = Column(Text)
     manual_badges   = Column(ARRAY(String), default=list)  # admin-granted badge ids
     household_id    = Column(BigInteger, ForeignKey("households.id"), nullable=True)
+    # Biometrics & Health (Smart AI Assistant)
+    height_cm       = Column(Float)
+    weight_kg       = Column(Float)
+    target_weight_kg = Column(Float)
+    birth_date      = Column(DateTime(timezone=True))
+    biological_sex  = Column(String(20))                    # "male" | "female"
+    activity_level  = Column(String(50))                    # "sedentary" | "light" | "moderate" | "active" | "very_active"
+    bmi_history     = Column(JSONB, default=list)           # list of snapshots: [{"date": ISO, "weight": 85.0, "bmi": 24.5}]
+    
     is_active       = Column(Boolean, default=True)
+    role            = Column(String(20), default="user", nullable=False)
     created_at      = Column(DateTime(timezone=True), default=now_utc)
 
     household   = relationship("Household", back_populates="members")
@@ -118,9 +135,9 @@ class Recipe(Base):
     fork_parent     = relationship("Recipe", remote_side="Recipe.id", foreign_keys=[forked_from_id])
     ingredients     = relationship("RecipeIngredient", back_populates="recipe", cascade="all, delete-orphan", order_by="RecipeIngredient.position")
     steps           = relationship("RecipeStep", back_populates="recipe", cascade="all, delete-orphan", order_by="RecipeStep.position")
-    ratings         = relationship("Rating", back_populates="recipe")
-    meal_plan_items = relationship("MealPlanItem", back_populates="recipe")
-    favorites       = relationship("Favorite", back_populates="recipe")
+    ratings         = relationship("Rating", back_populates="recipe", cascade="all, delete-orphan")
+    meal_plan_items = relationship("MealPlanItem", back_populates="recipe", cascade="all, delete-orphan")
+    favorites       = relationship("Favorite", back_populates="recipe", cascade="all, delete-orphan")
     comments        = relationship("RecipeComment", back_populates="recipe", cascade="all, delete-orphan")
 
     __table_args__ = (
@@ -321,3 +338,33 @@ class SharedGroceryItem(Base):
     created_at    = Column(DateTime(timezone=True), default=now_utc)
 
     household = relationship("Household", back_populates="shared_list")
+
+
+# ── Administration ────────────────────────────────────────────────────────────
+
+class AdminActivityLog(Base):
+    """Tracks administrative actions for audit purposes."""
+    __tablename__ = "admin_activity_logs"
+
+    id          = Column(BigInteger, primary_key=True, autoincrement=True)
+    admin_id    = Column(BigInteger, ForeignKey("users.id"), nullable=False)
+    action_type = Column(String(50), nullable=False)   # e.g., "role_change", "recipe_delete", "reassign_author"
+    target_type = Column(String(50))                   # e.g., "user", "recipe"
+    target_id   = Column(String(100))                  # ID or slug of the target
+    details     = Column(JSONB)                        # exact changes or additional context
+    created_at  = Column(DateTime(timezone=True), default=now_utc)
+
+    admin = relationship("User")
+
+
+class SiteStats(Base):
+    """Aggregated daily statistics for the admin dashboard."""
+    __tablename__ = "site_stats"
+
+    id             = Column(BigInteger, primary_key=True, autoincrement=True)
+    date           = Column(DateTime(timezone=True), unique=True, nullable=False, index=True)
+    page_views     = Column(Integer, default=0)
+    new_users      = Column(Integer, default=0)
+    new_recipes    = Column(Integer, default=0)
+    active_users   = Column(Integer, default=0)
+    created_at     = Column(DateTime(timezone=True), default=now_utc)

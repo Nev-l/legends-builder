@@ -3,6 +3,8 @@ import { useState, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import useSWR, { mutate } from "swr";
 import { api } from "@/lib/api";
+import HealthProfile from "@/components/HealthProfile";
+import AIAssistant from "@/components/AIAssistant";
 
 interface Recipe {
   id: number;
@@ -40,6 +42,7 @@ interface RecipeDetail extends Recipe {
   author_id: number | null;
   author_username: string | null;
   author_display_name: string | null;
+  author_role?: string;
   source: string;
   source_url: string | null;
   ingredients: Ingredient[];
@@ -79,6 +82,9 @@ export default function Home() {
   // e.g. visiting /recipes/pasta → pathname = "/pasta"
   const slug = pathname && pathname !== "/" ? pathname.replace(/^\//, "").replace(/\/$/, "") : null;
 
+  if (slug === "admin") {
+    return <AdminDashboardView />;
+  }
   if (slug && slug.startsWith("user/")) {
     return <UserProfileView username={slug.slice(5)} />;
   }
@@ -86,6 +92,23 @@ export default function Home() {
     return <RecipeDetailView slug={slug} />;
   }
   return <RecipeList />;
+}
+
+function RoleBadge({ role }: { role?: string }) {
+  if (!role || role === "user") return null;
+  const map: Record<string, { label: string; icon: string; color: string }> = {
+    vip: { label: "VIP", icon: "💎", color: "text-purple-400 bg-purple-400/10 border-purple-400/20" },
+    verified_chef: { label: "Chef", icon: "👨‍🍳", color: "text-amber-400 bg-amber-400/10 border-amber-400/20" },
+    moderator: { label: "Mod", icon: "🛡️", color: "text-blue-400 bg-blue-400/10 border-blue-400/20" },
+    admin: { label: "Admin", icon: "💎", color: "text-brand-400 bg-brand-400/10 border-brand-400/20" },
+  };
+  const cfg = map[role];
+  if (!cfg) return null;
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${cfg.color}`}>
+      {cfg.icon} {cfg.label}
+    </span>
+  );
 }
 
 // ── Recipe list ──────────────────────────────────────────────────────────────
@@ -469,7 +492,7 @@ interface Comment {
   id: number;
   body: string;
   created_at: string;
-  user: { username: string; display_name: string; avatar_url: string | null };
+  user: { id: number; username: string; display_name: string; avatar_url: string | null; role?: string };
 }
 
 function CommentsSection({ slug }: { slug: string }) {
@@ -479,7 +502,18 @@ function CommentsSection({ slug }: { slug: string }) {
   );
   const [body, setBody] = useState("");
   const [posting, setPosting] = useState(false);
-  const isLoggedIn = typeof window !== "undefined" && !!localStorage.getItem("rh_token");
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [myUsername, setMyUsername] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    setIsLoggedIn(!!localStorage.getItem("rh_token"));
+    setMyUsername(localStorage.getItem("rh_username"));
+    try {
+      const token = localStorage.getItem("rh_token");
+      if (token) setIsAdmin(parseInt(JSON.parse(atob(token.split(".")[1])).sub) === 1);
+    } catch {}
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -497,11 +531,6 @@ function CommentsSection({ slug }: { slug: string }) {
     await api.delete(`/recipes/${slug}/comments/${id}`);
     mutate();
   }
-
-  const myUsername = typeof window !== "undefined" ? localStorage.getItem("rh_username") : null;
-  const isAdmin = typeof window !== "undefined" && (() => {
-    try { return parseInt(JSON.parse(atob(localStorage.getItem("rh_token")!.split(".")[1])).sub) === 1; } catch { return false; }
-  })();
 
   return (
     <section className="mt-12 border-t border-gray-800 pt-8">
@@ -538,8 +567,10 @@ function CommentsSection({ slug }: { slug: string }) {
                 <a href={`/recipes/user/${c.user.username}`} className="text-sm font-semibold hover:text-brand-400">
                   {c.user.display_name || c.user.username}
                 </a>
+                <RoleBadge role={c.user.role} />
                 <span className="text-xs text-gray-600">
-                  {new Date(c.created_at).toLocaleDateString()}
+                  {/* Custom override for @Nev (User ID 1) - Dawn of Time */}
+                  {c.user.username === "Nev" || c.user.id === 1 ? "The Dawn of Time" : new Date(c.created_at).toLocaleDateString()}
                 </span>
                 {(c.user.username === myUsername || isAdmin) && (
                   <button onClick={() => deleteComment(c.id)} className="ml-auto text-xs text-gray-600 hover:text-red-400">✕</button>
@@ -825,7 +856,14 @@ function RecipeDetailView({ slug }: { slug: string }) {
   // ── View mode ──────────────────────────────────────────────────────────────
   return (
     <div className="mx-auto max-w-3xl">
-      <a href="/recipes" className="mb-4 inline-block text-sm text-gray-500 hover:text-white">← Back</a>
+      <div className="mb-4 flex items-center justify-between">
+        <a href="/recipes" className="text-sm text-gray-500 hover:text-white">← Back</a>
+        {isAdmin && (
+          <a href="/recipes/admin" className="rounded-lg bg-brand-500/10 px-3 py-1 text-xs font-bold text-brand-400 border border-brand-500/20 hover:bg-brand-500/20">
+            🛡️ Admin Panel
+          </a>
+        )}
+      </div>
 
       {recipe.image_url ? (
         <img src={recipe.image_url} alt={recipe.title} className="mb-6 h-64 w-full rounded-xl object-cover" />
@@ -844,6 +882,7 @@ function RecipeDetailView({ slug }: { slug: string }) {
             >
               {recipe.author_display_name || recipe.author_username}
             </a>
+            <RoleBadge role={recipe.author_role} />
           </p>
         )}
         {recipe.description && <p className="mb-4 text-gray-400">{recipe.description}</p>}
@@ -952,6 +991,8 @@ function RecipeDetailView({ slug }: { slug: string }) {
       {/* Comments */}
       <CommentsSection slug={recipe.slug} />
 
+      {isAdmin && <AdminAuthorReassign recipe={recipe} mutate={mutate} />}
+
       {/* Print-only recipe card */}
       <div className="hidden print:block" id="recipe-print">
         <style>{`
@@ -1029,27 +1070,42 @@ function RecipeDetailView({ slug }: { slug: string }) {
 // ── User Profile ─────────────────────────────────────────────────────────────
 
 const ALL_BADGE_IDS = [
-  { id: "first_recipe", name: "First Recipe", icon: "🍳" },
-  { id: "recipe_5", name: "Home Cook", icon: "👨‍🍳" },
-  { id: "recipe_20", name: "Chef", icon: "🧑‍🍳" },
-  { id: "recipe_50", name: "Master Chef", icon: "⭐" },
-  { id: "first_fork", name: "Remixer", icon: "🍴" },
-  { id: "fork_5", name: "Recipe Hacker", icon: "🔧" },
-  { id: "first_upvote", name: "Crowd Pleaser", icon: "👍" },
-  { id: "upvotes_10", name: "Fan Favourite", icon: "🌟" },
-  { id: "upvotes_50", name: "Community Star", icon: "💫" },
-  { id: "upvotes_100", name: "Legend", icon: "🏆" },
-  { id: "voted_10", name: "Critic", icon: "🎭" },
-  { id: "voted_50", name: "Food Critic", icon: "📝" },
-  { id: "first_comment", name: "Conversationalist", icon: "💬" },
-  { id: "comment_10", name: "Social Butterfly", icon: "🦋" },
-  { id: "week_1", name: "Regular", icon: "📅" },
-  { id: "month_1", name: "Loyal Member", icon: "🗓️" },
-  { id: "month_6", name: "Veteran", icon: "🎖️" },
-  { id: "year_1", name: "Old Timer", icon: "🏅" },
-  { id: "diet_variety", name: "Diet Explorer", icon: "🌈" },
-  { id: "planner_user", name: "Meal Planner", icon: "📋" },
-  { id: "admin", name: "Admin", icon: "🛡️" },
+  {"id": "first_recipe",    "name": "First Recipe",       "icon": "🍳", "desc": "Created your first recipe"},
+  {"id": "recipe_5",        "name": "Home Cook",          "icon": "👨‍🍳", "desc": "Created 5 recipes"},
+  {"id": "recipe_20",       "name": "Chef",               "icon": "🧑‍🍳", "desc": "Created 20 recipes"},
+  {"id": "recipe_50",       "name": "Master Chef",        "icon": "⭐", "desc": "Created 50 recipes"},
+  {"id": "recipe_100",      "name": "Chef de Cuisine",    "icon": "👨🏼‍🍳", "desc": "Created 100 recipes"},
+  {"id": "first_fork",      "name": "Remixer",            "icon": "🍴", "desc": "Forked your first recipe"},
+  {"id": "fork_5",          "name": "Recipe Hacker",      "icon": "🔧", "desc": "Forked 5 recipes"},
+  {"id": "fork_10",         "name": "Forking Legend",     "icon": "🔱", "desc": "Forked 10 recipes"},
+  {"id": "first_upvote",    "name": "Crowd Pleaser",      "icon": "👍", "desc": "Received your first upvote"},
+  {"id": "upvotes_10",      "name": "Fan Favourite",      "icon": "🌟", "desc": "Received 10 upvotes"},
+  {"id": "upvotes_50",      "name": "Community Star",     "icon": "💫", "desc": "Received 50 upvotes"},
+  {"id": "upvotes_100",     "name": "Legend",             "icon": "🏆", "desc": "Received 100 upvotes"},
+  {"id": "upvotes_250",     "name": "Michelin Star",      "icon": "🎖️", "desc": "Received 250 upvotes"},
+  {"id": "voted_10",        "name": "Critic",             "icon": "🎭", "desc": "Voted on 10 recipes"},
+  {"id": "voted_50",        "name": "Food Critic",        "icon": "📝", "desc": "Voted on 50 recipes"},
+  {"id": "voted_100",       "name": "Professional Critic","icon": "⚖️", "desc": "Voted on 100 recipes"},
+  {"id": "first_comment",   "name": "Conversationalist",  "icon": "💬", "desc": "Left your first comment"},
+  {"id": "comment_10",      "name": "Social Butterfly",   "icon": "🦋", "desc": "Left 10 comments"},
+  {"id": "comment_50",      "name": "Community Pillar",   "icon": "🏛️", "desc": "Left 50 comments"},
+  {"id": "week_1",          "name": "Regular",            "icon": "📅", "desc": "Member for 1 week"},
+  {"id": "month_1",         "name": "Loyal Member",       "icon": "🗓️", "desc": "Member for 1 month"},
+  {"id": "month_6",         "name": "Veteran",            "icon": "🎖️", "desc": "Member for 6 months"},
+  {"id": "year_1",          "name": "Old Timer",          "icon": "🏅", "desc": "Member for 1 year"},
+  {"id": "diet_variety",    "name": "Diet Explorer",      "icon": "🌈", "desc": "Tested 3+ diets"},
+  {"id": "diet_global",     "name": "Global Taster",      "icon": "🌍", "desc": "Tested 5+ diets"},
+  {"id": "healthy_habit",   "name": "Healthy Living",     "icon": "🥗", "desc": "10+ Vegan/Veg recipes"},
+  {"id": "pantry_master",   "name": "Pantry Specialist",  "icon": "📦", "desc": "20+ Pantry items"},
+  {"id": "meal_architect",  "name": "Meal Architect",     "icon": "🏗️", "desc": "10+ Meal plans"},
+  {"id": "alchemist",       "name": "Ingredient Alchemist","icon": "🧪", "desc": "A recipe with 15+ ingredients"},
+  {"id": "night_owl",       "name": "Night Owl",          "icon": "🦉", "desc": "Late night cooking (2-5 AM)"},
+  // Easter Eggs
+  {"id": "logo_fanatic",    "name": "Logo Fanatic",       "icon": "🌀", "desc": "Logo click obsession"},
+  {"id": "inside_look",     "name": "The Inspector",      "icon": "👀", "desc": "Web inspector master"},
+  {"id": "secret_vault",    "name": "Vault Explorer",     "icon": "🗝️", "desc": "Found the secret vault"},
+  {"id": "speed_demon",     "name": "Speed Demon",        "icon": "⚡", "desc": "Fast recipe saving"},
+  {"id": "admin",           "name": "Admin",              "icon": "🛡️", "desc": "Site administrator"},
 ];
 
 interface UserProfile {
@@ -1226,7 +1282,9 @@ function UserProfileView({ username }: { username: string }) {
               </div>
               <p className="text-sm text-gray-500">@{profile.username}</p>
               {profile.joined && (
-                <p className="text-xs text-gray-600 mt-1">Member since {new Date(profile.joined).toLocaleDateString("en-AU", { year: "numeric", month: "long" })}</p>
+                <p className="text-xs text-gray-600 mt-1">
+                  Member since {profile.id === 1 ? "The Dawn of Time" : new Date(profile.joined).toLocaleDateString("en-AU", { year: "numeric", month: "long" })}
+                </p>
               )}
               {profile.bio && <p className="mt-2 text-sm text-gray-300">{profile.bio}</p>}
               <div className="mt-2 flex gap-4 text-sm text-gray-400">
@@ -1282,6 +1340,13 @@ function UserProfileView({ username }: { username: string }) {
           </section>
         )}
 
+        {/* Health Dashboard (New) - Only visible if viewing own profile */}
+        {canEdit && (
+          <section className="mb-10">
+            <HealthProfile initialData={profile} onUpdate={mutate} />
+          </section>
+        )}
+
         {/* Recipes */}
         <section>
           <h2 className="mb-4 text-lg font-bold">Recipes by {profile.display_name}</h2>
@@ -1296,6 +1361,344 @@ function UserProfileView({ username }: { username: string }) {
           )}
         </section>
       </div>
+    </div>
+  );
+}
+
+// ── Admin: Reassign Author ───────────────────────────────────────────────────
+
+function AdminAuthorReassign({ recipe, mutate }: { recipe: RecipeDetail; mutate: any }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [users, setUsers] = useState<{ id: number; username: string; display_name: string }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const delay = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const res = await api.get<{ id: number; username: string; display_name: string }[]>(`/users/search?q=${q}`);
+        setUsers(res);
+      } catch {}
+      finally { setLoading(false); }
+    }, 300);
+    return () => clearTimeout(delay);
+  }, [q, open]);
+
+  async function reassign(userId: number) {
+    if (!confirm("Reassign authorship to this user? The source will also be updated to UGC if it was previously scraped.")) return;
+    setSaving(true);
+    try {
+      await api.post(`/recipes/${recipe.slug}/reassign-author`, { new_author_id: userId });
+      mutate();
+      setOpen(false);
+    } catch (e: any) { alert(e.message); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <section className="mt-8 rounded-xl border border-brand-500/30 bg-brand-500/5 p-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-bold text-brand-400">🛡️ Admin: Authorship</h3>
+          <p className="text-xs text-gray-500">Change the owner of this recipe. Scraped recipes will become UGC.</p>
+        </div>
+        <button
+          onClick={() => setOpen(!open)}
+          className="rounded-lg bg-gray-800 px-4 py-2 text-sm font-medium hover:bg-gray-700"
+        >
+          {open ? "Close" : "Change Author"}
+        </button>
+      </div>
+
+      {open && (
+        <div className="mt-4 space-y-4">
+          <input
+            type="text"
+            placeholder="Search users by name or username…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            className="w-full rounded-lg border border-gray-700 bg-gray-900 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+          <div className="max-h-48 overflow-y-auto rounded-lg border border-gray-800 bg-gray-900/50">
+            {loading ? (
+              <p className="p-4 text-center text-xs text-gray-600">Searching…</p>
+            ) : users.length > 0 ? (
+              <div className="divide-y divide-gray-800/50">
+                {users.map((u) => (
+                  <button
+                    key={u.id}
+                    disabled={saving}
+                    onClick={() => reassign(u.id)}
+                    className="flex w-full items-center justify-between px-4 py-3 text-left transition hover:bg-brand-500/10"
+                  >
+                    <div>
+                      <div className="text-sm font-semibold">{u.display_name}</div>
+                      <div className="text-xs text-gray-500">@{u.username}</div>
+                    </div>
+                    {recipe.author_id === u.id ? (
+                      <span className="text-xs font-bold text-brand-500">Current</span>
+                    ) : (
+                      <span className="text-xs text-gray-400 group-hover:text-brand-400">Select →</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="p-4 text-center text-xs text-gray-600">No users found.</p>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ── Admin Dashboard ──────────────────────────────────────────────────────────
+
+interface AdminStats {
+  total_users: number;
+  total_recipes: number;
+  total_views: number;
+  new_users_24h: number;
+  new_recipes_24h: number;
+}
+
+interface AdminLog {
+  id: number;
+  admin_username: string;
+  action: string;
+  target_type: string;
+  target_id: string;
+  details: any;
+  created_at: string;
+}
+
+interface AdminUser {
+  id: number;
+  username: string;
+  display_name: string;
+  role: string;
+  created_at: string;
+}
+
+function AdminDashboardView() {
+  const fetcher = (url: string) => api.get(url);
+  const { data: stats } = useSWR("/admin/stats", fetcher) as { data: AdminStats | undefined };
+  const { data: logs } = useSWR("/admin/logs", fetcher) as { data: AdminLog[] | undefined };
+  const { data: users, mutate: mutateUsers } = useSWR("/admin/users", fetcher) as { data: AdminUser[] | undefined; mutate: any };
+  const { data: edits, mutate: mutateEdits } = useSWR("/recipes/edits/pending", fetcher) as { data: any[] | undefined; mutate: any };
+
+  async function setRole(userId: number, role: string) {
+    if (!confirm(`Change user role to ${role}?`)) return;
+    try {
+      await api.patch(`/admin/users/${userId}/role`, { role });
+      mutateUsers();
+    } catch (e: any) { alert(e.message); }
+  }
+
+  async function handleEditAction(editId: number, action: 'approve' | 'reject') {
+    try {
+      await api.post(`/recipes/edits/${editId}/${action}`, {});
+      mutateEdits();
+    } catch (e: any) { alert(e.message); }
+  }
+
+  return (
+    <div className="mx-auto max-w-5xl px-4 py-8">
+      <header className="mb-10 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight">Admin Dashboard</h1>
+          <p className="text-gray-500">Manage users, roles, and site activity.</p>
+        </div>
+        <a href="/recipes" className="text-sm font-medium text-gray-500 hover:text-white">← Back to Hub</a>
+      </header>
+
+      {/* Stats Cards */}
+      <div className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard title="Total Users" value={stats?.total_users ?? "—"} sub={`+${stats?.new_users_24h ?? 0} today`} />
+        <StatCard title="Total Recipes" value={stats?.total_recipes ?? "—"} sub={`+${stats?.new_recipes_24h ?? 0} today`} />
+        <StatCard title="Total Page Views" value={stats?.total_views?.toLocaleString() ?? "—"} />
+        <StatCard title="Platform Status" value="Online" trend="up" />
+      </div>
+
+      {/* Suggested Edits Queue (Restored Inline) */}
+      <section className="mb-12">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="flex items-center gap-2 text-2xl font-black text-brand-400 italic">
+            ✨ Suggested Edits Review
+          </h2>
+          <span className="rounded-full bg-brand-500/20 px-4 py-1 text-sm font-bold text-brand-400 border border-brand-500/30">
+            {edits?.length ?? 0} Pending
+          </span>
+        </div>
+        
+        <div className="space-y-8">
+          {edits?.map(edit => (
+            <div key={edit.id} className="group relative rounded-3xl border border-gray-800 bg-gray-900/50 hover:bg-gray-900 transition-all p-8 shadow-2xl">
+              <div className="mb-8 flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="rounded bg-brand-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-brand-400 border border-brand-500/30 tracking-widest">Community Contribution</span>
+                    <span className="text-xs text-gray-600">ID: {edit.id}</span>
+                  </div>
+                  <h3 className="text-2xl font-black tracking-tight mb-1">Improve "{edit.recipe_title}"</h3>
+                  <p className="text-sm text-gray-500">Proposed by <span className="font-bold text-white">@{edit.username}</span> • {new Date(edit.created_at).toLocaleString()}</p>
+                </div>
+                <div className="flex gap-4">
+                  <button 
+                    onClick={() => handleEditAction(edit.id, 'reject')}
+                    className="rounded-xl border border-red-500/30 px-6 py-2.5 text-sm font-bold text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-lg shadow-red-500/5"
+                  >
+                    Reject
+                  </button>
+                  <button 
+                    onClick={() => handleEditAction(edit.id, 'approve')}
+                    className="rounded-xl bg-brand-500 px-6 py-2.5 text-sm font-bold text-white hover:bg-brand-600 hover:scale-105 active:scale-95 transition-all shadow-xl shadow-brand-500/20"
+                  >
+                    Approve Changes
+                  </button>
+                </div>
+              </div>
+              
+              <div className="rounded-2xl border border-gray-800 bg-gray-950 p-6">
+                <h4 className="mb-6 text-[10px] font-bold uppercase tracking-[0.2em] text-gray-600 border-b border-gray-900 pb-2">Structural Comparison</h4>
+                <EditDiffView original={edit.current_state} proposed={edit.proposed_changes} />
+              </div>
+            </div>
+          ))}
+          {edits?.length === 0 && (
+            <div className="rounded-3xl border border-dashed border-gray-800 py-20 text-center">
+              <p className="text-4xl mb-4 grayscale opacity-20">📂</p>
+              <p className="text-sm text-gray-600 italic">No pending edits in the queue.</p>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <div className="grid gap-8 lg:grid-cols-2">
+        {/* User Management */}
+        <section className="rounded-2xl border border-gray-800 bg-gray-900/50 p-6">
+          <h2 className="mb-6 text-xl font-bold">User Management</h2>
+          <div className="space-y-4">
+            {users?.map(u => (
+              <div key={u.id} className="flex items-center justify-between rounded-xl border border-gray-800/50 bg-gray-900 p-4">
+                <div>
+                  <p className="font-bold">{u.display_name}</p>
+                  <p className="text-xs text-gray-500">@{u.username}</p>
+                </div>
+                <div className="flex gap-2">
+                  <select 
+                    value={u.role} 
+                    onChange={(e) => setRole(u.id, e.target.value)}
+                    className="rounded-lg border border-gray-700 bg-gray-800 px-2 py-1 text-xs focus:ring-2 focus:ring-brand-500 outline-none"
+                  >
+                    <option value="user">User</option>
+                    <option value="vip">VIP</option>
+                    <option value="verified_chef">Chef</option>
+                    <option value="moderator">Mod</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Activity Logs */}
+        <section className="rounded-2xl border border-gray-800 bg-gray-900/50 p-6">
+          <h2 className="mb-6 text-xl font-bold">Recent Activity</h2>
+          <div className="space-y-4">
+            {logs?.map(l => (
+              <div key={l.id} className="flex gap-3 border-l-2 border-brand-500/30 pl-4 py-1">
+                <div className="flex-1">
+                  <p className="text-sm">
+                    <span className="font-bold">@{l.admin_username}</span>{" "}
+                    <span className="text-gray-400">{l.action.replace("_", " ")}</span>{" "}
+                    <span className="font-medium text-brand-400">{l.target_type}: {l.target_id}</span>
+                  </p>
+                  <p className="text-[10px] text-gray-600">
+                    {new Date(l.created_at).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+            ))}
+            {logs?.length === 0 && <p className="text-sm text-gray-600">No activity logged yet.</p>}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+// ── Edit Diff View ──────────────────────────────────────────────────────────
+
+function EditDiffView({ original, proposed }: { original: any; proposed: any }) {
+  const fields = Object.keys(proposed).filter(k => !Array.isArray(proposed[k]));
+  
+  return (
+    <div className="grid gap-4 text-sm">
+      {/* Basic Fields */}
+      <div className="grid grid-cols-2 gap-2 border-b border-gray-800 pb-4 font-mono text-[11px] uppercase tracking-wider text-gray-600">
+        <div>Current Version</div>
+        <div>Proposed Change</div>
+      </div>
+      
+      {fields.map(field => (
+        <div key={field} className="grid grid-cols-2 gap-4 border-b border-gray-800/30 py-2">
+          <div className="break-words text-xs text-gray-400">
+            <span className="mb-1 block text-[10px] font-bold uppercase text-gray-600">{field}</span>
+            {String(original[field] ?? "—")}
+          </div>
+          <div className="break-words rounded-lg bg-green-500/10 p-2 text-xs text-green-300">
+            <span className="mb-1 block text-[10px] font-bold uppercase text-green-500/50">{field}</span>
+            {String(proposed[field])}
+          </div>
+        </div>
+      ))}
+
+      {/* Complex Arrays (Ingredients/Steps) - Shown as list updates */}
+      {proposed.ingredients && (
+        <div className="mt-4">
+          <h4 className="mb-2 text-[10px] font-bold uppercase text-gray-500">Updated Ingredients</h4>
+          <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-4">
+            <ul className="list-inside list-disc space-y-1 text-xs text-green-400">
+              {proposed.ingredients.map((ing: any, i: number) => (
+                <li key={i}>{ing.quantity} {ing.unit} {ing.name} {ing.note && <span className="text-gray-500 italic">({ing.note})</span>}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {proposed.steps && (
+        <div className="mt-4">
+          <h4 className="mb-2 text-[10px] font-bold uppercase text-gray-500">Updated Steps</h4>
+          <div className="space-y-2">
+            {proposed.steps.map((step: any, i: number) => (
+              <div key={i} className="rounded-lg border border-gray-800 bg-gray-900/50 p-3 text-xs text-green-300">
+                <span className="mr-2 font-bold text-green-500/50">#{i + 1}</span>
+                {step.body}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatCard({ title, value, sub, trend }: { title: string; value: string | number; sub?: string; trend?: "up" | "down" }) {
+  return (
+    <div className="rounded-2xl border border-gray-800 bg-gray-900 p-6">
+      <p className="text-xs font-bold uppercase tracking-wider text-gray-500">{title}</p>
+      <div className="mt-2 flex items-baseline gap-2">
+        <h3 className="text-2xl font-extrabold">{value}</h3>
+        {trend === "up" && <span className="text-xs font-bold text-green-500">↑</span>}
+      </div>
+      {sub && <p className="mt-1 text-xs text-gray-500">{sub}</p>}
     </div>
   );
 }

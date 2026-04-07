@@ -87,6 +87,7 @@ export default function PlannerPage() {
   const ws = weekStart(weekOffset);
   const [calorieGoal, setCalorieGoal] = useState<number>(2000);
   const [goalInput, setGoalInput] = useState("2000");
+  const [maxTimeMinutes, setMaxTimeMinutes] = useState<number | null>(null);
 
   // Toast
   const [toast, setToast] = useState<string | null>(null);
@@ -212,8 +213,9 @@ export default function PlannerPage() {
     setShowRecommend(true);
     try {
       const perMeal = Math.round(calorieGoal / 3);
+      const timeParam = maxTimeMinutes ? `&max_time=${maxTimeMinutes}` : "";
       const res = await api.get<RecipeResult[]>(
-        `/meal-planner/recommend?calorie_target=${perMeal}&slot=${recommendSlot}&_t=${Date.now()}`
+        `/meal-planner/recommend?calorie_target=${perMeal}&slot=${recommendSlot}&_t=${Date.now()}${timeParam}`
       );
       setRecommendResults(res);
     } catch {
@@ -283,7 +285,7 @@ export default function PlannerPage() {
         </div>
       </div>
 
-      {/* Calorie goal */}
+      {/* Calorie goal + time filter */}
       <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-gray-800 bg-gray-900 px-4 py-3">
         <span className="text-sm font-semibold text-gray-300">Daily calorie goal</span>
         <input
@@ -300,6 +302,20 @@ export default function PlannerPage() {
           className="w-24 rounded-lg border border-gray-700 bg-gray-800 px-2 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
         />
         <span className="text-sm text-gray-500">kcal / day</span>
+        <span className="ml-2 text-sm font-semibold text-gray-300">Max prep+cook</span>
+        <select
+          value={maxTimeMinutes ?? ""}
+          onChange={e => setMaxTimeMinutes(e.target.value ? parseInt(e.target.value) : null)}
+          className="rounded-lg border border-gray-700 bg-gray-800 px-2 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+        >
+          <option value="">Any time</option>
+          <option value="15">15 min</option>
+          <option value="20">20 min</option>
+          <option value="30">30 min</option>
+          <option value="45">45 min</option>
+          <option value="60">1 hour</option>
+          <option value="90">1.5 hours</option>
+        </select>
         {plan && (
           <>
             <button
@@ -458,7 +474,7 @@ export default function PlannerPage() {
               </div>
 
               {/* Grouped by category */}
-              {(["Meat & Seafood", "Produce", "Dairy", "Pantry & Other"] as const).map(cat => {
+              {(["Meat & Seafood", "Produce", "Dairy", "Herbs & Spices", "Pantry & Other"] as const).map(cat => {
                 const items = grocery.filter(g => g.category === cat);
                 if (!items.length) return null;
                 return (
@@ -581,7 +597,7 @@ export default function PlannerPage() {
           {grocery && grocery.length > 0 && (
             <div className="print-section">
               <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>Shopping List</h2>
-              {(["Meat & Seafood", "Produce", "Dairy", "Pantry & Other"] as const).map(cat => {
+              {(["Meat & Seafood", "Produce", "Dairy", "Herbs & Spices", "Pantry & Other"] as const).map(cat => {
                 const items = grocery.filter(g => g.category === cat);
                 if (!items.length) return null;
                 return (

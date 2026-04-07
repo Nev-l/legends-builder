@@ -16,6 +16,7 @@ interface Profile {
   sex: string;
   activity: string;
   goal: string;
+  max_time: string;  // max prep+cook minutes per meal ("" = no limit)
 }
 
 const STORAGE_KEY = "raul_chat_history";
@@ -156,7 +157,7 @@ export default function AIAssistant() {
   const [applyingPlan, setApplyingPlan] = useState(false);
   const [profile, setProfile] = useState<Profile>({
     height_cm: "", weight_kg: "", target_weight_kg: "",
-    age: "", sex: "male", activity: "moderate", goal: "lose",
+    age: "", sex: "male", activity: "moderate", goal: "lose", max_time: "",
   });
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -232,6 +233,21 @@ export default function AIAssistant() {
     return null;
   }
 
+  async function raulCreateRecipe(keyword: string): Promise<{ slug: string; title: string } | null> {
+    try {
+      const timeParam = profile.max_time ? parseInt(profile.max_time) : undefined;
+      const res: any = await api.post("/ai/create-recipe", {
+        title: keyword,
+        servings: 2,
+        max_time_minutes: timeParam,
+        notes: profile.goal ? `Goal: ${profile.goal}` : undefined,
+      });
+      return res;
+    } catch {
+      return null;
+    }
+  }
+
   async function smartUpdatePlan(day: number, slot: string, keyword: string) {
     if (!isLoggedIn) return;
     // Get current plan id
@@ -250,6 +266,28 @@ export default function AIAssistant() {
         slot,
         keyword,
       });
+
+      // If no recipe found, ask Raul to create one
+      if (!res?.ok) {
+        setMessages(prev => [...prev, {
+          role: "assistant",
+          content: `I don't have "${keyword}" in the recipe base yet, Amigo. Let me whip one up! 👨‍🍳`,
+        }]);
+        const created = await raulCreateRecipe(keyword);
+        if (created) {
+          // Now retry the smart update with the exact new title
+          const retry: any = await api.post(`/meal-planner/${plan.id}/smart-update`, {
+            day_of_week: day,
+            slot,
+            keyword: created.title,
+          }).catch(() => null);
+          if (retry?.ok) {
+            return { ...retry, _created: true };
+          }
+        }
+        return null;
+      }
+
       return res;
     } catch {
       return null;
@@ -273,9 +311,12 @@ export default function AIAssistant() {
         const result = await smartUpdatePlan(mealChange.day, mealChange.slot, mealChange.keyword);
         if (result?.ok) {
           const dayName = DAY_NAMES[mealChange.day];
+          const wasCreated = result._created;
           setMessages(prev => [...prev, {
             role: "assistant",
-            content: `Done, Amigo! I've updated ${dayName} ${mealChange.slot} to **${result.recipe.title}**.\n\nYour planner is already updated — no refresh needed! 🍳`,
+            content: wasCreated
+              ? `No existing recipe matched, so I created **${result.recipe.title}** from scratch and added it to ${dayName} ${mealChange.slot}! 🍳\n\nCheck it out in the planner — refresh might be needed.`
+              : `Done, Amigo! I've updated ${dayName} ${mealChange.slot} to **${result.recipe.title}**.\n\nYour planner is already updated — no refresh needed! 🍳`,
           }]);
           setLoading(false);
           return;
@@ -316,6 +357,7 @@ export default function AIAssistant() {
       `• Activity: ${actLabel}`,
       `• Goal: ${goalLabel}`,
       profile.target_weight_kg ? `• Target weight: ${profile.target_weight_kg}kg` : "",
+      profile.max_time ? `• Max meal time: ${profile.max_time} minutes per meal` : "",
       stats ? `\n📊 My estimated TDEE is ${stats.tdee} kcal/day. Target: ${stats.target} kcal/day (${stats.deficit > 0 ? "+" : ""}${stats.deficit} kcal ${stats.deficit < 0 ? "deficit" : "surplus"}).` : "",
       timeline ? `\n⏱️ ${timeline}` : "",
       `\nPlease build me a personalised meal plan based on this!`,
@@ -342,10 +384,11 @@ export default function AIAssistant() {
       const slots = ["breakfast", "lunch", "dinner", "snack"] as const;
       const recipePool: Record<string, { slug: string; title: string }[]> = {};
 
+      const timeParam = profile.max_time ? `&max_time=${profile.max_time}` : "";
       await Promise.all(slots.map(async slot => {
         const cal = slotCals[slot];
         const res = await api.get<{ slug: string; title: string }[]>(
-          `/meal-planner/recommend?calorie_target=${cal}&slot=${slot}&limit=21`
+          `/meal-planner/recommend?calorie_target=${cal}&slot=${slot}&limit=21${timeParam}`
         );
         recipePool[slot] = Array.isArray(res) ? res : [];
       }));
@@ -513,6 +556,19 @@ export default function AIAssistant() {
                     ))}
                   </select>
                 </div>
+                <div className="col-span-2 flex flex-col gap-1">
+                  <label className="text-gray-500">Max meal prep + cook time</label>
+                  <select value={profile.max_time} onChange={e => setProfile(p => ({ ...p, max_time: e.target.value }))}
+                    className="rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-brand-500">
+                    <option value="">No limit</option>
+                    <option value="15">15 minutes</option>
+                    <option value="20">20 minutes</option>
+                    <option value="30">30 minutes</option>
+                    <option value="45">45 minutes</option>
+                    <option value="60">1 hour</option>
+                    <option value="90">1.5 hours</option>
+                  </select>
+                </div>
               </div>
               {profile.height_cm && profile.weight_kg && profile.age && (() => {
                 const s = calcTDEE(profile);
@@ -609,6 +665,10 @@ export default function AIAssistant() {
               <button onClick={() => send("Give me a high protein snack idea under 200 calories")}
                 className="shrink-0 rounded-lg bg-gray-800 px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-700">
                 💪 Snack idea
+              </button>
+              <button onClick={() => send("Create a new recipe for me — surprise me with something delicious and healthy!")}
+                className="shrink-0 rounded-lg bg-gray-800 px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-700">
+                🧑‍🍳 Create recipe
               </button>
             </div>
           )}

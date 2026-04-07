@@ -332,21 +332,27 @@ _MEAT_WORDS    = {"beef","chicken","pork","lamb","turkey","fish","salmon","tuna"
                   "shrimp","prawn","bacon","ham","sausage","mince","ground beef",
                   "steak","duck","venison","bison","veal","liver","pepperoni",
                   "chorizo","salami","anchovy","cod","tilapia","crab","lobster",
-                  "scallop","clam","mussel","oyster","seafood","meat"}
+                  "scallop","clam","mussel","oyster","seafood","meat","meatball",
+                  "schnitzel","rissole","brisket","ribs","roast","cutlet","fillet"}
 _PRODUCE_WORDS = {"onion","garlic","tomato","pepper","capsicum","carrot","celery",
                   "broccoli","spinach","lettuce","zucchini","eggplant","cucumber",
                   "mushroom","cauliflower","kale","cabbage","corn","potato",
-                  "sweet potato","leek","shallot","ginger","lemon","lime","orange",
+                  "sweet potato","leek","shallot","lemon","lime","orange",
                   "apple","banana","avocado","berry","berries","mango","pineapple",
-                  "herbs","herb","cilantro","parsley","coriander leaf","spring onion",
-                  "scallion","beetroot","beet","asparagus","artichoke","fennel",
-                  "butternut","squash","pumpkin","radish","turnip","bok choy",
-                  "bean sprouts","snap peas","snow peas","green beans"}
+                  "spring onion","scallion","beetroot","beet","asparagus","artichoke",
+                  "fennel","butternut","squash","pumpkin","radish","turnip","bok choy",
+                  "bean sprouts","snap peas","snow peas","green beans","silverbeet",
+                  "rocket","watercress","chilli","jalapeno","capsicum","coriander leaf",
+                  "basil leaf","mint","parsley leaf","thyme sprig","rosemary sprig"}
 _DAIRY_WORDS   = {"milk","cream","butter","cheese","yogurt","yoghurt","sour cream",
                   "creme fraiche","ricotta","mozzarella","parmesan","cheddar",
                   "feta","brie","gouda","havarti","cream cheese","ghee","whey",
-                  "half and half","heavy cream","ice cream","custard","kefir",
-                  "condensed milk","evaporated milk","buttermilk"}
+                  "heavy cream","ice cream","custard","kefir","egg","eggs",
+                  "condensed milk","evaporated milk","buttermilk","tasty cheese"}
+_HERBS_WORDS   = {"basil","oregano","thyme","rosemary","parsley","coriander","cilantro",
+                  "mint","dill","chives","sage","tarragon","bay leaf","bay leaves",
+                  "lemongrass","kaffir lime","curry leaf","dried herb","mixed herbs",
+                  "italian seasoning","herbs de provence","bouquet garni"}
 _PANTRY_WORDS  = {"pasta","rice","noodle","noodles","bread","flour","sugar",
                   "canned","can","tin","tinned","beans","lentils","chickpeas",
                   "kidney beans","black beans","coconut milk","tomato paste",
@@ -357,7 +363,8 @@ _PANTRY_WORDS  = {"pasta","rice","noodle","noodles","bread","flour","sugar",
                   "sunflower seeds","pumpkin seeds","chia","flaxseed","soy sauce",
                   "fish sauce","oyster sauce","hoisin","teriyaki","hot sauce",
                   "ketchup","worcestershire","tahini","miso","curry paste",
-                  "coconut cream","vine leaves","breadcrumbs","panko"}
+                  "coconut cream","vine leaves","breadcrumbs","panko","tofu",
+                  "tempeh","tortilla","wrap","pita","naan","sourdough"}
 
 
 _US_UNIT_CONVERSIONS = {
@@ -454,9 +461,10 @@ def _clean_ingredient_name(raw: str) -> str:
 
 def _categorise(name: str) -> str:
     n = name.lower()
-    if any(w in n for w in _MEAT_WORDS):   return "Meat & Seafood"
+    if any(w in n for w in _MEAT_WORDS):    return "Meat & Seafood"
     if any(w in n for w in _PRODUCE_WORDS): return "Produce"
     if any(w in n for w in _DAIRY_WORDS):   return "Dairy"
+    if any(w in n for w in _HERBS_WORDS):   return "Herbs & Spices"
     return "Pantry & Other"
 
 
@@ -634,6 +642,7 @@ async def recommend_meals(
     calorie_target: int = Query(..., ge=100, le=10000),
     slot: str = Query("dinner"),
     diet_tags: Optional[str] = Query(None),  # comma-separated
+    max_time: Optional[int] = Query(None, ge=5, le=300),  # max prep+cook minutes
     db: AsyncSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
 ):
@@ -662,20 +671,54 @@ async def recommend_meals(
     q = q.where(Recipe.calories >= low, Recipe.calories <= high)
 
     # Fetch a larger pool then filter + shuffle in Python for slot relevance
-    q = q.order_by(func.random()).limit(60)
+    q = q.order_by(func.random()).limit(120)
     rows = await db.execute(q)
     all_recipes = rows.scalars().all()
 
-    # Prefer recipes whose title matches the slot; fall back to anything in range
-    matched   = [r for r in all_recipes if _slot_score(r.title, slot)]
-    unmatched = [r for r in all_recipes if not _slot_score(r.title, slot)]
+    # Apply max time filter (prep + cook <= max_time)
+    if max_time is not None:
+        all_recipes = [
+            r for r in all_recipes
+            if (r.prep_minutes or 0) + (r.cook_minutes or 0) <= max_time
+            or ((r.prep_minutes is None) and (r.cook_minutes is None))  # include if no time data
+        ]
 
-    # If lunch, also accept dinner-style mains (no strong slot signal)
-    if slot == "lunch" and len(matched) < 6:
-        neutral = [r for r in unmatched if not any(k in r.title.lower() for k in _BREAKFAST_KEYWORDS | _SNACK_KEYWORDS)]
-        matched = matched + neutral
+    # For breakfast: STRICT — only return slot-matched recipes
+    if slot == "breakfast":
+        matched = [r for r in all_recipes if _slot_score(r.title, slot)]
+        # If not enough, do a wider fallback DB search specifically for breakfast keywords
+        if len(matched) < 4:
+            bk_query = select(Recipe).where(
+                Recipe.calories != None,
+                Recipe.is_published == True,
+                Recipe.calories >= low,
+                Recipe.calories <= high,
+                func.lower(Recipe.title).op("~")(
+                    "breakfast|pancake|waffle|omelette|omelet|scramble|french toast|"
+                    "oatmeal|porridge|muesli|granola|overnight oat|frittata|quiche|"
+                    "hash brown|bacon|cereal|crepe|brunch|muffin|egg"
+                ),
+            ).order_by(func.random()).limit(20)
+            bk_rows = await db.execute(bk_query)
+            extra = bk_rows.scalars().all()
+            existing_slugs = {r.slug for r in matched}
+            for r in extra:
+                if r.slug not in existing_slugs:
+                    matched.append(r)
+                    existing_slugs.add(r.slug)
+        combined = matched[:12]
 
-    combined = (matched + unmatched)[:12]
+    else:
+        # Prefer recipes whose title matches the slot; fall back to anything in range
+        matched   = [r for r in all_recipes if _slot_score(r.title, slot)]
+        unmatched = [r for r in all_recipes if not _slot_score(r.title, slot)]
+
+        # If lunch, also accept dinner-style mains (no strong slot signal)
+        if slot == "lunch" and len(matched) < 6:
+            neutral = [r for r in unmatched if not any(k in r.title.lower() for k in _BREAKFAST_KEYWORDS | _SNACK_KEYWORDS)]
+            matched = matched + neutral
+
+        combined = (matched + unmatched)[:12]
 
     return [
         {

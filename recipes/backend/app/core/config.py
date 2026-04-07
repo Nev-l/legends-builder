@@ -33,8 +33,8 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str = ""
     GOOGLE_REDIRECT_URI: str = "https://0k.au/recipes/api/auth/google/callback"
 
-    # AI (Gemini)
-    GEMINI_API_KEY: str = ""
+    # AI (Groq)
+    GROQ_API_KEY: str = ""
 
 
 @lru_cache

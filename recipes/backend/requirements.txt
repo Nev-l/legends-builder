@@ -34,5 +34,5 @@ pydantic[email]
 python-dotenv==1.0.1
 
 # AI Meal Assistant
-google-generativeai==0.8.3
+groq==1.1.2
 pandas==2.2.3

@@ -81,6 +81,71 @@ function estimateTimeline(p: Profile): string {
   return `To ${direction} ${Math.abs(diff).toFixed(1)}kg at ~${kgPerWeek}kg/week: approx ${weeks} weeks (${months} months).`;
 }
 
+function RaulMessage({ text }: { text: string }) {
+  const lines = text.split("\n").filter(l => l.trim() !== "" || true);
+  const elements: React.ReactNode[] = [];
+  let key = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (trimmed === "") {
+      // blank line → small spacer
+      elements.push(<div key={key++} className="h-1" />);
+    } else if (/^#{1,3}\s/.test(trimmed)) {
+      // ## Heading
+      const content = trimmed.replace(/^#+\s/, "");
+      elements.push(<p key={key++} className="font-bold text-brand-400 mt-2 mb-0.5">{content}</p>);
+    } else if (/^[•\-\*]\s/.test(trimmed)) {
+      // bullet
+      const content = trimmed.replace(/^[•\-\*]\s/, "");
+      elements.push(
+        <div key={key++} className="flex gap-2 items-start">
+          <span className="mt-0.5 shrink-0 text-brand-400">•</span>
+          <span>{renderInline(content)}</span>
+        </div>
+      );
+    } else if (/^\d+\.\s/.test(trimmed)) {
+      // numbered list
+      const num = trimmed.match(/^(\d+)\./)?.[1];
+      const content = trimmed.replace(/^\d+\.\s/, "");
+      elements.push(
+        <div key={key++} className="flex gap-2 items-start">
+          <span className="mt-0.5 shrink-0 font-bold text-brand-400">{num}.</span>
+          <span>{renderInline(content)}</span>
+        </div>
+      );
+    } else if (/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Day \d)/i.test(trimmed)) {
+      // Day header in meal plan
+      elements.push(<p key={key++} className="font-bold text-white mt-3 border-t border-gray-700 pt-2">{trimmed}</p>);
+    } else if (/^(Breakfast|Lunch|Dinner|Snack):/i.test(trimmed)) {
+      // Meal slot
+      const [slot, ...rest] = trimmed.split(":");
+      elements.push(
+        <div key={key++} className="flex gap-2 text-xs mt-1">
+          <span className="shrink-0 font-semibold text-brand-400 w-16">{slot}:</span>
+          <span className="text-gray-300">{rest.join(":").trim()}</span>
+        </div>
+      );
+    } else {
+      elements.push(<p key={key++} className="leading-snug">{renderInline(trimmed)}</p>);
+    }
+  }
+
+  return <div className="space-y-0.5">{elements}</div>;
+}
+
+function renderInline(text: string): React.ReactNode {
+  // Bold: **text**
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((p, i) =>
+    p.startsWith("**") && p.endsWith("**")
+      ? <strong key={i} className="text-white font-semibold">{p.slice(2, -2)}</strong>
+      : p
+  );
+}
+
 export default function AIAssistant() {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -408,12 +473,10 @@ day 0=Monday, 1=Tuesday, ... 6=Sunday. Reply with ONLY the JSON, no other text.`
 
             {messages.map((m, i) => (
               <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
-                  m.role === "user"
-                    ? "bg-brand-500 text-white"
-                    : "bg-gray-900 text-gray-200"
-                } break-words overflow-wrap-anywhere`}>
-                  {m.content}
+                <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed break-words ${
+                  m.role === "user" ? "bg-brand-500 text-white" : "bg-gray-900 text-gray-200"
+                }`}>
+                  {m.role === "user" ? m.content : <RaulMessage text={m.content} />}
                 </div>
               </div>
             ))}

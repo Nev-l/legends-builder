@@ -3,8 +3,6 @@ import { useState, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import useSWR, { mutate } from "swr";
 import { api } from "@/lib/api";
-import HealthProfile from "@/components/HealthProfile";
-import AIAssistant from "@/components/AIAssistant";
 
 interface Recipe {
   id: number;
@@ -1337,13 +1335,6 @@ function UserProfileView({ username }: { username: string }) {
                 </div>
               ))}
             </div>
-          </section>
-        )}
-
-        {/* Health Dashboard (New) - Only visible if viewing own profile */}
-        {canEdit && (
-          <section className="mb-10">
-            <HealthProfile initialData={profile} onUpdate={mutate} />
           </section>
         )}
 

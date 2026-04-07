@@ -346,7 +346,7 @@ day 0=Monday, 1=Tuesday, ... 6=Sunday. Reply with ONLY the JSON, no other text.`
       </button>
 
       {isOpen && (
-        <div className="absolute bottom-18 right-0 mb-4 flex w-[400px] max-w-[95vw] flex-col overflow-hidden rounded-2xl border border-gray-800 bg-gray-950 shadow-2xl">
+        <div className="fixed bottom-24 right-6 flex w-[400px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-2xl border border-gray-800 bg-gray-950 shadow-2xl" style={{ maxHeight: "calc(100vh - 100px)" }}>
 
           {/* Header */}
           <div className="flex items-center gap-3 bg-brand-500 px-4 py-3">
@@ -453,7 +453,7 @@ day 0=Monday, 1=Tuesday, ... 6=Sunday. Reply with ONLY the JSON, no other text.`
           )}
 
           {/* Messages */}
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3" style={{ maxHeight: "380px" }}>
+          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3" style={{ minHeight: "120px", maxHeight: "min(380px, 50vh)" }}>
             {messages.length === 0 && !showForm && (
               <div className="py-8 text-center">
                 <p className="text-sm font-bold text-gray-400">Hola! I'm Raul 🔥</p>

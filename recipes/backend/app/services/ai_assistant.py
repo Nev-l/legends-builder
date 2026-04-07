@@ -15,7 +15,7 @@ class AIAssistantService:
         self.api_key = os.getenv("GEMINI_API_KEY")
         
         # Base URL for stable v1beta (v1beta/models/gemini-1.5-flash) - CONFIRMED on Pi
-        self.base_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+        self.base_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
         
         self.system_instruction = """
         Your name is RAUL THE CHEF, the spicy, witty, and exceptionally talented Head Chef of RecipeHub.

@@ -105,6 +105,7 @@ export default function PlannerPage() {
   const [recommendResults, setRecommendResults] = useState<RecipeResult[]>([]);
   const [recommendLoading, setRecommendLoading] = useState(false);
   const [targetDay, setTargetDay] = useState(0);
+  const [aiGenerating, setAiGenerating] = useState(false);
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   useEffect(() => {
@@ -231,6 +232,42 @@ export default function PlannerPage() {
     mutatePlans();
   }
 
+  async function buildAIPlan() {
+    setAiGenerating(true);
+    setToast("✨ Raul The Chef is cooking up a special Keto plan for you...");
+    try {
+      // For the quick button, we default to 4 weeks, but the code is now dynamic
+      const res = (await api.post("/ai/generate-plan?weeks=4&diet_type=keto", {})) as any;
+      setToast(`✨ ${res.weeks.length}-Week Plan Generated! Applying to your schedule...`);
+      
+      for (let i = 0; i < res.weeks.length; i++) {
+        const weekWs = weekStart(weekOffset + i);
+        const weekData = res.weeks[i];
+        if (!weekData) continue;
+        
+        const items = weekData.days.flatMap((d: any) => [
+          { recipe_slug: d.meals.breakfast.slug_hint || "keto-pancakes", day_of_week: d.day_number - 1, slot: "breakfast" },
+          { recipe_slug: d.meals.lunch.slug_hint || "keto-salad", day_of_week: d.day_number - 1, slot: "lunch" },
+          { recipe_slug: d.meals.dinner.slug_hint || "keto-steak", day_of_week: d.day_number - 1, slot: "dinner" },
+          { recipe_slug: d.meals.snack.slug_hint || "keto-nuts", day_of_week: d.day_number - 1, slot: "snack" },
+        ]);
+
+        await api.post("/meal-planner", { week_start: weekWs, items });
+      }
+      
+      await mutatePlans();
+      setToast(`✅ ${res.weeks.length}-Week Plan successfully applied, Amigo!`);
+    } catch (e: any) {
+      setToast("❌ Raul failed: " + e.message);
+    } finally {
+      setAiGenerating(false);
+    }
+  }
+
+  function startAIPlanning() {
+    setToast("✨ Click the floating '✨' button in the bottom-right to start your AI-guided plan with Raul The Chef!");
+  }
+
   return (
     <div>
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
@@ -262,12 +299,20 @@ export default function PlannerPage() {
         />
         <span className="text-sm text-gray-500">kcal / day</span>
         {plan && (
-          <button
-            onClick={fetchRecommend}
-            className="ml-auto rounded-lg bg-brand-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-600"
-          >
-            Suggest meals for goal
-          </button>
+          <>
+            <button
+              onClick={fetchRecommend}
+              className="ml-auto rounded-lg bg-brand-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-600"
+            >
+              Suggest meals for goal
+            </button>
+            <button
+              onClick={startAIPlanning}
+              className="rounded-lg border border-brand-500/50 bg-brand-500/10 px-4 py-1.5 text-sm font-bold text-brand-400 hover:bg-brand-500 hover:text-white transition-all"
+            >
+              ✨ AI Guided Planner (Raul)
+            </button>
+          </>
         )}
       </div>
 

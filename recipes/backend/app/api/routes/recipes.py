@@ -3,15 +3,16 @@ Recipe CRUD + scrape + fork + leftover-wizard.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_
-from sqlalchemy.orm import selectinload
+from sqlalchemy import select, func, or_, text
+from datetime import datetime, timezone
+from sqlalchemy.orm import selectinload, joinedload
 from pydantic import BaseModel, HttpUrl
 from typing import Optional
 import re, unicodedata
 
 from app.core.database import get_db
-from app.core.security import get_current_user_id, get_optional_user_id
-from app.models.models import Recipe, RecipeIngredient, RecipeStep, Ingredient, Rating
+from app.core.security import get_current_user_id, get_optional_user_id, get_current_admin
+from app.models.models import Recipe, RecipeIngredient, RecipeStep, Ingredient, Rating, Favorite, AdminActivityLog
 from app.services.scraper import scrape_recipe_url
 
 router = APIRouter(prefix="/recipes", tags=["recipes"])
@@ -166,7 +167,7 @@ async def get_recipe(slug: str, db: AsyncSession = Depends(get_db)):
         "forked_from_id": recipe.forked_from_id,
         "ingredients": [
             {
-                "name": ri.ingredient.name,
+                "name": ri.ingredient.name if ri.ingredient else "Unknown",
                 "quantity": ri.quantity,
                 "unit": ri.unit,
                 "note": ri.note,
@@ -412,6 +413,16 @@ async def delete_recipe(
     if user_id != 1 and recipe.author_id != user_id:
         raise HTTPException(status_code=403, detail="Not authorised")
     await db.delete(recipe)
+    
+    if user_id == 1: # Log if admin deleted
+        db.add(AdminActivityLog(
+            admin_id=user_id,
+            action_type="recipe_delete",
+            target_type="recipe",
+            target_id=recipe.slug,
+            details={"title": recipe.title}
+        ))
+    
     await db.commit()
 
 
@@ -500,15 +511,36 @@ async def get_pending_edits(
     if user_id != 1:
         raise HTTPException(status_code=403, detail="Admin only")
     from app.models.models import RecipeEditProposal, User
-    rows = await db.execute(
-        select(RecipeEditProposal, Recipe, User)
-        .join(Recipe, RecipeEditProposal.recipe_id == Recipe.id)
-        .join(User, RecipeEditProposal.user_id == User.id)
+    stmt = (
+        select(RecipeEditProposal)
         .where(RecipeEditProposal.status == "pending")
+        .options(
+            joinedload(RecipeEditProposal.user),
+            joinedload(RecipeEditProposal.recipe).selectinload(Recipe.ingredients).joinedload(RecipeIngredient.ingredient),
+            joinedload(RecipeEditProposal.recipe).selectinload(Recipe.steps)
+        )
         .order_by(RecipeEditProposal.created_at.desc())
     )
+    rows = await db.execute(stmt)
     results = []
-    for prop, rec, usr in rows.all():
+    
+    for prop in rows.scalars().all():
+        rec = prop.recipe
+        usr = prop.user
+        
+        # Current state for diffing
+        current_data = {
+            "title": rec.title,
+            "description": rec.description,
+            "image_url": rec.image_url,
+            "prep_minutes": rec.prep_minutes,
+            "cook_minutes": rec.cook_minutes,
+            "servings": rec.servings,
+            "diet_tags": rec.diet_tags,
+            "ingredients": [{"name": i.ingredient.name if i.ingredient else "Unknown", "quantity": i.quantity, "unit": i.unit, "note": i.note} for i in rec.ingredients],
+            "steps": [{"body": s.body, "timer_mins": s.timer_mins, "image_url": s.image_url} for s in rec.steps],
+        }
+        
         results.append({
             "id": prop.id,
             "recipe_id": rec.id,
@@ -517,6 +549,7 @@ async def get_pending_edits(
             "user_id": usr.id,
             "username": usr.username,
             "proposed_changes": prop.proposed_changes,
+            "current_state": current_data,
             "created_at": prop.created_at.isoformat() if prop.created_at else None,
         })
     return results
@@ -530,27 +563,33 @@ async def approve_recipe_edit(
     if user_id != 1:
         raise HTTPException(status_code=403, detail="Admin only")
     from app.models.models import RecipeEditProposal
-    prop = await db.scalar(select(RecipeEditProposal).where(RecipeEditProposal.id == edit_id))
+    prop = await db.scalar(
+        select(RecipeEditProposal)
+        .where(RecipeEditProposal.id == edit_id)
+        .options(
+            joinedload(RecipeEditProposal.recipe).selectinload(Recipe.ingredients).selectinload(RecipeIngredient.ingredient),
+            joinedload(RecipeEditProposal.recipe).selectinload(Recipe.steps)
+        )
+    )
     if not prop or prop.status != "pending":
         raise HTTPException(status_code=404, detail="Pending proposal not found")
 
-    recipe = await db.scalar(
-        select(Recipe).where(Recipe.id == prop.recipe_id)
-        .options(selectinload(Recipe.ingredients), selectinload(Recipe.steps))
-    )
+    recipe = prop.recipe
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
 
     changes = prop.proposed_changes
     # Apply changes (same logic as update_recipe)
     if "title" in changes:
-        new_slug = slugify(changes["title"])
+        new_title = changes["title"]
+        new_slug = slugify(new_title)
         if new_slug != recipe.slug:
             conflict = await db.scalar(select(Recipe).where(Recipe.slug == new_slug))
             if conflict:
                 new_slug = f"{new_slug}-{recipe.id}"
-        recipe.title = changes["title"]
+        recipe.title = new_title
         recipe.slug = new_slug
+    
     if "description" in changes: recipe.description = changes["description"]
     if "image_url" in changes: recipe.image_url = changes["image_url"]
     if "prep_minutes" in changes: recipe.prep_minutes = changes["prep_minutes"]
@@ -559,20 +598,48 @@ async def approve_recipe_edit(
     if "diet_tags" in changes: recipe.diet_tags = changes["diet_tags"]
 
     if "ingredients" in changes:
+        # Delete old ingredients
         for ri in recipe.ingredients:
             await db.delete(ri)
         await db.flush()
+        # Insert new ingredients
         await _upsert_ingredients(recipe.id, [IngredientIn(**i) for i in changes["ingredients"]], db)
 
     if "steps" in changes:
+        # Delete old steps
         for s in recipe.steps:
             await db.delete(s)
         await db.flush()
+        # Insert new steps
+        from app.models.models import RecipeStep
         for i, step in enumerate(changes["steps"]):
-            db.add(RecipeStep(recipe_id=recipe.id, position=i + 1, **step))
+            # Filter only valid keys for RecipeStep
+            valid_keys = {"body", "timer_mins", "image_url"}
+            sdata = {k: v for k, v in step.items() if k in valid_keys}
+            db.add(RecipeStep(recipe_id=recipe.id, position=i + 1, **sdata))
 
+    # Finalize state
     prop.status = "approved"
-    await db.commit()
+    prop.updated_at = datetime.now(timezone.utc)
+    
+    # Optional Activity Log (don't crash on this)
+    try:
+        db.add(AdminActivityLog(
+            admin_id=user_id,
+            action_type="edit_approve",
+            target_type="recipe",
+            target_id=recipe.slug,
+            details={"proposal_id": prop.id, "editor_id": prop.user_id}
+        ))
+    except Exception as e:
+        print(f"Activity logging failed: {e}")
+    
+    try:
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
     return {"message": "Edit approved successfully", "slug": recipe.slug}
 
 @router.post("/edits/{edit_id}/reject")
@@ -589,8 +656,62 @@ async def reject_recipe_edit(
         raise HTTPException(status_code=404, detail="Pending proposal not found")
     
     prop.status = "rejected"
-    await db.commit()
+    prop.updated_at = datetime.now(timezone.utc)
+    
+    try:
+        db.add(AdminActivityLog(
+            admin_id=user_id,
+            action_type="edit_reject",
+            target_type="recipe",
+            target_id=str(prop.recipe_id),
+            details={"proposal_id": prop.id, "editor_id": prop.user_id}
+        ))
+    except Exception as e:
+        print(f"Activity logging failed: {e}")
+    
+    try:
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
     return {"message": "Edit rejected successfully"}
+
+
+class RecipeReassignRequest(BaseModel):
+    new_author_id: int
+
+@router.post("/{slug}/reassign-author")
+async def reassign_recipe_author(
+    slug: str,
+    body: RecipeReassignRequest,
+    user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    if user_id != 1:
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    recipe = await db.scalar(select(Recipe).where(Recipe.slug == slug))
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    
+    # Update author
+    recipe.author_id = body.new_author_id
+    
+    # If it was a scraped recipe, it's now user-maintained
+    if recipe.source == "scraped":
+        recipe.source = "ugc"
+    
+    db.add(AdminActivityLog(
+        admin_id=user_id,
+        action_type="reassign_author",
+        target_type="recipe",
+        target_id=recipe.slug,
+        details={"new_author_id": body.new_author_id}
+    ))
+    
+    await db.commit()
+    return {"message": "Authorship reassigned successfully", "new_author_id": body.new_author_id}
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────

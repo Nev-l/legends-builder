@@ -32,3 +32,7 @@ Pillow==10.4.0
 pydantic-settings==2.5.2
 pydantic[email]
 python-dotenv==1.0.1
+
+# AI Meal Assistant
+google-generativeai==0.8.3
+pandas==2.2.3

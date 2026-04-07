@@ -35,7 +35,7 @@ Be enthusiastic, be helpful, be Raul."""
 class AIAssistantService:
     def __init__(self):
         self.api_key = os.getenv("GROQ_API_KEY", "")
-        self.model = "llama3-70b-8192"  # Best free model on Groq
+        self.model = "llama-3.3-70b-versatile"  # Best free model on Groq
         self.status = "ready" if self.api_key else "no_key"
 
     async def chat(self, message: str, history: List[Dict] = None) -> str:

@@ -531,7 +531,7 @@ export default function AIAssistant() {
 
   async function raulCreateRecipe(keyword: string) {
     try {
-      return await api.post<any>("/ai/create-recipe", {
+      const result = await api.post<any>("/ai/create-recipe", {
         title: keyword, servings: 2,
         max_time_minutes: profile.max_time ? parseInt(profile.max_time) : (tastes.lazy_cook ? 15 : undefined),
         lazy_mode: tastes.lazy_cook,
@@ -541,7 +541,14 @@ export default function AIAssistant() {
           tastes.disliked_foods ? `Avoid: ${tastes.disliked_foods}` : "",
         ].filter(Boolean).join(". ") || undefined,
       });
-    } catch { return null; }
+      return result;
+    } catch (e: any) {
+      setMessages(prev => [...prev, {
+        role: "assistant",
+        content: `Couldn't create "${keyword}" right now, Amigo — ${e.message}. I'll skip that one.`,
+      }]);
+      return null;
+    }
   }
 
   async function smartUpdatePlan(day: number, slot: string, keyword: string) {
@@ -550,21 +557,22 @@ export default function AIAssistant() {
       const plan = await getCurrentPlan();
       if (!plan) return null;
       const res: any = await api.post(`/meal-planner/${plan.id}/smart-update`, { day_of_week: day, slot, keyword });
-      if (!res?.ok) {
-        setMessages(prev => [...prev, {
-          role: "assistant",
-          content: `I don't have "${keyword}" in the recipe base yet, Amigo. Let me whip one up! 👨‍🍳`,
-        }]);
-        const created: any = await raulCreateRecipe(keyword);
-        if (created?.slug) {
-          const retry: any = await api.post(`/meal-planner/${plan.id}/smart-update`, {
-            day_of_week: day, slot, keyword: created.title,
-          }).catch(() => null);
-          if (retry?.ok) return { ...retry, _created: true };
-        }
-        return null;
+      if (res?.ok) return res;
+
+      // Not in DB — create it
+      setMessages(prev => [...prev, {
+        role: "assistant",
+        content: `"${keyword}" isn't in the recipe base yet — creating it now! Give me a sec 👨‍🍳`,
+      }]);
+      const created: any = await raulCreateRecipe(keyword);
+      if (created?.slug) {
+        // Add it directly by slug
+        await api.post(`/meal-planner/${plan.id}/items`, {
+          recipe_slug: created.slug, day_of_week: day, slot, servings: 1,
+        }).catch(() => {});
+        return { ok: true, recipe: { slug: created.slug, title: created.title }, _created: true };
       }
-      return res;
+      return null;
     } catch { return null; }
   }
 
@@ -744,25 +752,58 @@ export default function AIAssistant() {
       const slots = ["breakfast","lunch","dinner","snack"] as const;
 
       if (useParsed) {
-        // Fill using the exact meals Raul proposed in chat
+        // Fill using the exact meals Raul proposed in chat.
+        // First: pre-resolve all unique meal names to slugs (create once, reuse across days)
+        const resolvedSlugs: Record<string, string | null> = {}; // keyword → slug
+
+        setMessages(prev => [...prev, {
+          role: "assistant",
+          content: `Building your planner from our chat... this may take a moment while I create any new recipes! 👨‍🍳`,
+        }]);
+
+        const allKeywords = new Set<string>();
+        for (const slot of slots) {
+          for (const kw of parsedPlan![slot]) allKeywords.add(kw);
+        }
+
+        // Resolve each unique keyword once
+        for (const keyword of allKeywords) {
+          // Try smart-update on day 0 to check if recipe exists
+          const probe: any = await api.post(`/meal-planner/${planId}/smart-update`, {
+            day_of_week: 0, slot: "dinner", keyword,
+          }).catch(() => null);
+          if (probe?.ok) {
+            resolvedSlugs[keyword] = probe.recipe?.slug ?? keyword;
+            // Remove day 0 dinner we just added as a probe
+            const freshPlan: any = await getCurrentPlan();
+            const probe_item = freshPlan?.items?.find((i: any) => i.day_of_week === 0 && i.slot === "dinner");
+            if (probe_item) await api.delete(`/meal-planner/${planId}/items/${probe_item.id}`).catch(() => {});
+          } else {
+            // Create the recipe
+            const created2: any = await raulCreateRecipe(keyword).catch(() => null);
+            resolvedSlugs[keyword] = created2?.slug ?? null;
+          }
+        }
+
+        // Now fill all 7 days using resolved slugs
         for (let dayNum = 0; dayNum < 7; dayNum++) {
           for (const slot of slots) {
             const pool = parsedPlan![slot];
             if (!pool.length) continue;
             const idx = tastes.consistent_meals ? 0 : dayNum % pool.length;
             const keyword = pool[idx];
-            const res: any = await api.post(`/meal-planner/${planId}/smart-update`, {
-              day_of_week: dayNum, slot, keyword,
-            }).catch(() => null);
-            if (res?.ok) { added++; continue; }
-            // Not in DB — ask Raul to create it
-            const created2: any = await raulCreateRecipe(keyword).catch(() => null);
-            if (created2?.slug) {
-              await api.post(`/meal-planner/${planId}/smart-update`, {
-                day_of_week: dayNum, slot, keyword: created2.title,
+            const slug = resolvedSlugs[keyword];
+            if (!slug) continue;
+            // Use the slug directly
+            await api.post(`/meal-planner/${planId}/items`, {
+              recipe_slug: slug, day_of_week: dayNum, slot, servings: 1,
+            }).catch(() => {
+              // Fallback: smart-update with keyword
+              api.post(`/meal-planner/${planId}/smart-update`, {
+                day_of_week: dayNum, slot, keyword,
               }).catch(() => {});
-              added++;
-            }
+            });
+            added++;
           }
         }
       } else {

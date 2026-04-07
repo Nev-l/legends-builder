@@ -86,7 +86,7 @@ class AIAssistantService:
                 return f"Raul hit a snag: {err}"
         return f"Raul's all models are rate-limited right now, Amigo! ({last_err}). Give it a minute and try again — too many cooks in the kitchen! 🍳"
 
-    async def chat(self, message: str, history: List[Dict] = None) -> str:
+    async def chat(self, message: str, history: List[Dict] = None, max_tokens: int = 1024) -> str:
         if not self.api_key:
             return "Raul needs a GROQ_API_KEY to cook, Amigo! Ask the admin to add one."
 
@@ -100,7 +100,7 @@ class AIAssistantService:
                     messages.append({"role": role, "content": content})
 
         messages.append({"role": "user", "content": message})
-        return await self._call(messages)
+        return await self._call(messages, max_tokens=max_tokens)
 
     async def generate_flexible_plan(self, user: User, db: AsyncSession, weeks: int = 1, diet_type: str = "keto") -> dict:
         prompt = f"""Build a {weeks}-week {diet_type} meal plan for someone with the following profile:

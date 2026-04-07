@@ -221,17 +221,45 @@ Rules:
 - Calories must be realistic for the ingredients listed
 - diet_tags only from: ["gluten_free","dairy_free","vegan","vegetarian","high_protein","low_carb","nut_free"]"""
 
-    raw = await ai_assistant.chat(prompt)
+    raw = await ai_assistant.chat(prompt, max_tokens=2048)
 
-    # Extract JSON from response (Raul might wrap it in markdown fences)
-    json_match = re.search(r"\{[\s\S]+\}", raw)
+    # Strip markdown fences if present
+    raw_clean = re.sub(r"```(?:json)?\s*", "", raw).strip()
+
+    # Find the JSON object — try strict parse first, then attempt repair
+    json_match = re.search(r"\{[\s\S]+\}", raw_clean)
     if not json_match:
-        raise HTTPException(500, f"Raul's recipe output wasn't parseable. Raw: {raw[:300]}")
+        raise HTTPException(500, f"Raul couldn't produce a recipe. Try again! (no JSON found)")
 
-    try:
-        data = json.loads(json_match.group(0))
-    except json.JSONDecodeError as e:
-        raise HTTPException(500, f"JSON parse error: {e}. Raw: {raw[:300]}")
+    raw_json = json_match.group(0)
+
+    # Attempt to close truncated JSON by counting braces/brackets
+    def try_fix_truncated(s: str) -> str:
+        open_b = s.count("{") - s.count("}")
+        open_sq = s.count("[") - s.count("]")
+        # Close any open strings first (remove trailing partial string)
+        s = re.sub(r',\s*"[^"]*$', "", s)          # trailing partial key
+        s = re.sub(r':\s*"[^"]*$', ': null', s)    # trailing partial value
+        s = re.sub(r',\s*\{[^}]*$', "", s)          # trailing partial object
+        for _ in range(open_sq): s += "]"
+        for _ in range(open_b):  s += "}"
+        return s
+
+    data = None
+    for attempt in (raw_json, try_fix_truncated(raw_json)):
+        try:
+            data = json.loads(attempt)
+            break
+        except json.JSONDecodeError:
+            continue
+
+    if data is None:
+        raise HTTPException(500, f"Raul's recipe JSON was malformed. Try again!")
+
+    # Sanitise diet_tags — only keep valid enum values
+    VALID_TAGS = {"gluten_free","dairy_free","vegan","vegetarian","high_protein","low_carb","nut_free"}
+    raw_tags = data.get("diet_tags") or body.diet_tags or []
+    clean_tags = [t for t in raw_tags if t in VALID_TAGS]
 
     # Find or create the Raul account
     raul_user = await db.scalar(select(User).where(User.username == "raul"))
@@ -274,7 +302,7 @@ Rules:
         protein_g=data.get("protein_g"),
         carbs_g=data.get("carbs_g"),
         fat_g=data.get("fat_g"),
-        diet_tags=data.get("diet_tags") or body.diet_tags or [],
+        diet_tags=clean_tags,
         image_url=image_url,
         source="ugc",
         author_id=raul_user.id,

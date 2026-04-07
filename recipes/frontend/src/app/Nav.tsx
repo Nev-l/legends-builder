@@ -53,14 +53,9 @@ export default function Nav() {
           {username ? (
             <>
               {(username.toLowerCase() === "nev" || username.toLowerCase() === "q") && (
-                <div className="flex gap-2">
-                  <a href="/recipes/admin" className="rounded-md bg-brand-500/20 px-3 py-1.5 text-brand-400 border border-brand-500/50 hover:bg-brand-500 hover:text-white">
+                <a href="/recipes/admin" className="rounded-md bg-brand-500/20 px-3 py-1.5 text-brand-400 border border-brand-500/50 hover:bg-brand-500 hover:text-white">
                     🛡️ Admin Panel
                   </a>
-                  <a href="/recipes/admin" className="rounded-md bg-gray-800 px-3 py-1.5 text-gray-300 border border-gray-700 hover:bg-gray-700 hover:text-white">
-                    Review Edits
-                  </a>
-                </div>
               )}
               <a href={`/recipes/user/${username}`} className="text-gray-500 hover:text-brand-400">Hi, <strong className="text-white">{username}</strong></a>
               <button

@@ -74,7 +74,7 @@ async def ai_chat(
     user_id: int = Depends(get_current_user_id)
 ):
     """Conversational endpoint for RAUL THE CHEF."""
-    response = await ai_assistant.chat(user_id, body.message, body.history)
+    response = await ai_assistant.chat(body.message, body.history)
     return {"response": response}
 
 @router.post("/generate-plan")

@@ -683,80 +683,143 @@ export default function AIAssistant() {
     send(summary);
   }
 
+  // ── Parse Raul's last plan message for meal names ─────────────────────────
+  // Returns { breakfast: "overnight oats", lunch: "chicken salad", dinner: "steak", snack: "greek yogurt" }
+  // for as many days as Raul mentioned. Falls back to null if nothing found.
+
+  function parsePlanFromMessages(): Record<string, string[]> | null {
+    // Find the last long assistant message that looks like a meal plan
+    const planMsg = [...messages].reverse().find(m =>
+      m.role === "assistant" && m.content.length > 150 &&
+      /breakfast|lunch|dinner/i.test(m.content)
+    );
+    if (!planMsg) return null;
+
+    const lines = planMsg.content.split("\n");
+    const bySlot: Record<string, string[]> = { breakfast: [], lunch: [], dinner: [], snack: [] };
+    let hasAny = false;
+
+    for (const line of lines) {
+      const t = line.trim();
+      // Match "Breakfast: Overnight oats with berries (350 kcal)" or "• Breakfast: ..."
+      const m = /^[•\-\*]?\s*\**(Breakfast|Lunch|Dinner|Snack)\**:\s*(.+)/i.exec(t);
+      if (m) {
+        const slot = m[1].toLowerCase();
+        // Strip trailing macro info like "(350 kcal | 30g protein)" or "(~400 kcal)"
+        let meal = m[2].replace(/\(.*?\)/g, "").replace(/\|.*$/, "").trim();
+        // Strip bold markers
+        meal = meal.replace(/\*\*/g, "").replace(/^\d+\.\s*/, "").trim();
+        if (meal && bySlot[slot] !== undefined) {
+          bySlot[slot].push(meal);
+          hasAny = true;
+        }
+      }
+    }
+    return hasAny ? bySlot : null;
+  }
+
   // ── Apply plan to planner ─────────────────────────────────────────────────
 
   async function applyPlanToPlanner(replace = false) {
     if (!isLoggedIn) { alert("Sign in to save your meal plan!"); return; }
     setApplyingPlan(true);
     try {
-      const stats    = calcTDEE(profile);
-      const dailyCal = stats?.target || 2000;
-      const slotCals = {
-        breakfast: Math.round(dailyCal * 0.25),
-        lunch:     Math.round(dailyCal * 0.30),
-        dinner:    Math.round(dailyCal * 0.35),
-        snack:     Math.round(dailyCal * 0.10),
-      };
-      const slots = ["breakfast","lunch","dinner","snack"] as const;
-      const recipePool: Record<string, { slug: string; title: string }[]> = {};
-      const timeParam = profile.max_time ? `&max_time=${profile.max_time}` : "";
-
-      // Build per-slot keyword hint from tastes
-      const slotKeywords: Record<string, string> = {
-        breakfast: tastes.breakfast_styles[0] || "",
-        lunch:     tastes.lunch_styles[0] || "",
-        dinner:    tastes.dinner_styles[0] || "",
-        snack:     tastes.snack_styles[0] || "",
-      };
-
-      await Promise.all(slots.map(async slot => {
-        const cal = slotCals[slot];
-        const kw  = slotKeywords[slot];
-        const kwParam = kw ? `&keyword=${encodeURIComponent(kw)}` : "";
-        const res = await api.get<{ slug: string; title: string }[]>(
-          `/meal-planner/recommend?calorie_target=${cal}&slot=${slot}${timeParam}${kwParam}`
-        );
-        recipePool[slot] = Array.isArray(res) ? res : [];
-      }));
+      // Try to use what Raul actually discussed first
+      const parsedPlan = parsePlanFromMessages();
+      const useParsed  = parsedPlan && (
+        parsedPlan.breakfast.length + parsedPlan.lunch.length +
+        parsedPlan.dinner.length   + parsedPlan.snack.length > 0
+      );
 
       const today  = new Date();
       const dow    = today.getDay();
       const monday = new Date(today);
       monday.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
       const weekStart = `${monday.getFullYear()}-${String(monday.getMonth()+1).padStart(2,"0")}-${String(monday.getDate()).padStart(2,"0")}`;
-
       const created: any = await api.post("/meal-planner", { week_start: weekStart, items: [] });
       const planId = created.id;
       if (replace) await api.delete(`/meal-planner/${planId}/items`);
 
-      for (const slot of slots) {
-        const pool = recipePool[slot];
-        for (let i = pool.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [pool[i], pool[j]] = [pool[j], pool[i]];
-        }
-      }
-
       let added = 0;
-      for (let dayNum = 0; dayNum < 7; dayNum++) {
+      const slots = ["breakfast","lunch","dinner","snack"] as const;
+
+      if (useParsed) {
+        // Fill using the exact meals Raul proposed in chat
+        for (let dayNum = 0; dayNum < 7; dayNum++) {
+          for (const slot of slots) {
+            const pool = parsedPlan![slot];
+            if (!pool.length) continue;
+            const idx = tastes.consistent_meals ? 0 : dayNum % pool.length;
+            const keyword = pool[idx];
+            const res: any = await api.post(`/meal-planner/${planId}/smart-update`, {
+              day_of_week: dayNum, slot, keyword,
+            }).catch(() => null);
+            if (res?.ok) { added++; continue; }
+            // Not in DB — ask Raul to create it
+            const created2: any = await raulCreateRecipe(keyword).catch(() => null);
+            if (created2?.slug) {
+              await api.post(`/meal-planner/${planId}/smart-update`, {
+                day_of_week: dayNum, slot, keyword: created2.title,
+              }).catch(() => {});
+              added++;
+            }
+          }
+        }
+      } else {
+        // Fallback: use /recommend with taste keyword hints
+        const stats    = calcTDEE(profile);
+        const dailyCal = stats?.target || 2000;
+        const slotCals = {
+          breakfast: Math.round(dailyCal * 0.25),
+          lunch:     Math.round(dailyCal * 0.30),
+          dinner:    Math.round(dailyCal * 0.35),
+          snack:     Math.round(dailyCal * 0.10),
+        };
+        const timeParam = profile.max_time ? `&max_time=${profile.max_time}` : "";
+        const slotKeywords: Record<string,string> = {
+          breakfast: tastes.breakfast_styles[0] || "",
+          lunch:     tastes.lunch_styles[0] || "",
+          dinner:    tastes.dinner_styles[0] || "",
+          snack:     tastes.snack_styles[0] || "",
+        };
+        const recipePool: Record<string, { slug: string; title: string }[]> = {};
+        await Promise.all(slots.map(async slot => {
+          const cal = slotCals[slot];
+          const kw  = slotKeywords[slot];
+          const kwParam = kw ? `&keyword=${encodeURIComponent(kw)}` : "";
+          const res = await api.get<{ slug: string; title: string }[]>(
+            `/meal-planner/recommend?calorie_target=${cal}&slot=${slot}${timeParam}${kwParam}`
+          );
+          recipePool[slot] = Array.isArray(res) ? res : [];
+        }));
+        // Shuffle for variety
         for (const slot of slots) {
           const pool = recipePool[slot];
-          if (!pool.length) continue;
-          // If consistent meals: always use index 0, else rotate through pool
-          const idx = tastes.consistent_meals ? 0 : dayNum % pool.length;
-          const recipe = pool[idx];
-          try {
-            await api.post(`/meal-planner/${planId}/items`, {
-              recipe_slug: recipe.slug, day_of_week: dayNum, slot, servings: 1,
-            });
-            added++;
-          } catch {}
+          for (let i = pool.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [pool[i], pool[j]] = [pool[j], pool[i]];
+          }
+        }
+        for (let dayNum = 0; dayNum < 7; dayNum++) {
+          for (const slot of slots) {
+            const pool = recipePool[slot];
+            if (!pool.length) continue;
+            const idx = tastes.consistent_meals ? 0 : dayNum % pool.length;
+            try {
+              await api.post(`/meal-planner/${planId}/items`, {
+                recipe_slug: pool[idx].slug, day_of_week: dayNum, slot, servings: 1,
+              });
+              added++;
+            } catch {}
+          }
         }
       }
 
+      const stats    = calcTDEE(profile);
+      const dailyCal = stats?.target || 2000;
       setMessages(prev => [...prev, {
         role: "assistant",
-        content: `✅ ${replace ? "Plan revised" : "Plan created"}, Amigo!\n\n• ${added} meals filled targeting ~${dailyCal} kcal/day\n• Tailored to your taste preferences\n• Head to the Meal Planner to review it! 🍳`,
+        content: `✅ ${replace ? "Plan revised" : "Plan created"}, Amigo!\n\n• ${added} meals filled${useParsed ? " using exactly what we discussed" : ` targeting ~${dailyCal} kcal/day`}\n• Head to the Meal Planner to review it! 🍳`,
       }]);
     } catch (e: any) {
       setMessages(prev => [...prev, {

@@ -54,9 +54,7 @@ class AIAssistantService:
     # Model priority list — try in order if rate limited
     MODELS = [
         "llama-3.3-70b-versatile",   # best quality
-        "llama3-8b-8192",            # fastest, rarely rate-limited
-        "gemma2-9b-it",              # Google's Gemma — good fallback
-        "mixtral-8x7b-32768",        # Mixtral — long context
+        "llama-3.1-8b-instant",      # fast fallback, same family
     ]
 
     def __init__(self):

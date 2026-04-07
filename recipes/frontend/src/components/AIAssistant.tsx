@@ -526,21 +526,33 @@ day 0=Monday, 1=Tuesday, ... 6=Sunday. Reply with ONLY the JSON, no other text.`
 
           {/* Input */}
           <div className="border-t border-gray-800 p-3">
-            <div className="flex items-center gap-2">
-              <input
-                ref={inputRef}
-                type="text"
+            <div className="flex items-end gap-2">
+              <textarea
+                ref={inputRef as any}
                 placeholder="Ask Raul anything…"
                 value={input}
-                onChange={e => setInput(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && send(input)}
-                className="flex-1 rounded-xl border border-gray-700 bg-gray-900 px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                rows={1}
+                onChange={e => {
+                  setInput(e.target.value);
+                  e.target.style.height = "auto";
+                  e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+                }}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    send(input);
+                    (e.target as HTMLTextAreaElement).style.height = "auto";
+                  }
+                }}
+                className="flex-1 resize-none overflow-hidden rounded-xl border border-gray-700 bg-gray-900 px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                style={{ minHeight: "42px" }}
               />
-              <button onClick={() => send(input)} disabled={!input.trim() || loading}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-40 transition-colors">
+              <button onClick={() => { send(input); const ta = document.querySelector(".raul-input") as HTMLTextAreaElement; if (ta) ta.style.height = "auto"; }} disabled={!input.trim() || loading}
+                className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-40 transition-colors">
                 ➔
               </button>
             </div>
+            <p className="mt-1 text-right text-[10px] text-gray-700">Enter to send · Shift+Enter for new line</p>
           </div>
         </div>
       )}

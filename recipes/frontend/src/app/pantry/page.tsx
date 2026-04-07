@@ -40,7 +40,7 @@ function CommonPantryItems({ onAdd, existingItems }: {
   function handleAdd(item: string) {
     if (existingItems.includes(item.toLowerCase()) || added.has(item)) return;
     onAdd(item);
-    setAdded(prev => new Set([...prev, item]));
+    setAdded(prev => { const s = new Set(prev); s.add(item); return s; });
   }
 
   return (

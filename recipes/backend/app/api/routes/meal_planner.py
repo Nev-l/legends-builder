@@ -212,6 +212,69 @@ async def remove_item(
     await db.commit()
 
 
+class SmartUpdateIn(BaseModel):
+    day_of_week: int        # 0=Mon … 6=Sun
+    slot: str               # breakfast|lunch|dinner|snack
+    keyword: str            # e.g. "steak", "salmon", "vegan pasta"
+
+@router.post("/{plan_id}/smart-update")
+async def smart_update_slot(
+    plan_id: int,
+    body: SmartUpdateIn,
+    user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Replace a single slot with the best matching recipe for a keyword."""
+    plan = await db.scalar(
+        select(MealPlan).where(MealPlan.id == plan_id, MealPlan.user_id == user_id)
+        .options(selectinload(MealPlan.items))
+    )
+    if not plan:
+        raise HTTPException(404, "Plan not found")
+
+    # Search for a recipe matching the keyword
+    keyword = f"%{body.keyword.lower()}%"
+    result = await db.execute(
+        select(Recipe)
+        .where(Recipe.is_published == True, func.lower(Recipe.title).like(keyword))
+        .order_by(func.random())
+        .limit(1)
+    )
+    recipe = result.scalar_one_or_none()
+
+    # Fallback: search by ingredient keyword
+    if not recipe:
+        from app.models.models import Ingredient, RecipeIngredient
+        result = await db.execute(
+            select(Recipe)
+            .join(RecipeIngredient, RecipeIngredient.recipe_id == Recipe.id)
+            .join(Ingredient, Ingredient.id == RecipeIngredient.ingredient_id)
+            .where(Recipe.is_published == True, func.lower(Ingredient.name).like(keyword))
+            .order_by(func.random())
+            .limit(1)
+        )
+        recipe = result.scalar_one_or_none()
+
+    if not recipe:
+        raise HTTPException(404, f"No recipe found matching '{body.keyword}'")
+
+    # Remove existing item in that slot/day
+    for item in plan.items:
+        if item.day_of_week == body.day_of_week and item.slot == body.slot:
+            await db.delete(item)
+
+    # Add new item
+    db.add(MealPlanItem(
+        plan_id=plan_id,
+        recipe_id=recipe.id,
+        day_of_week=body.day_of_week,
+        slot=body.slot,
+        servings=1,
+    ))
+    await db.commit()
+    return {"ok": True, "recipe": {"slug": recipe.slug, "title": recipe.title}}
+
+
 @router.delete("/{plan_id}/items", status_code=204)
 async def clear_plan_items(
     plan_id: int,
@@ -408,6 +471,46 @@ def _should_skip_grocery(cleaned: str) -> bool:
     return bool(words & _SKIP_WORDS)
 
 
+_UNIT_TO_ML = {
+    "ml": 1, "l": 1000, "L": 1000,
+    "tsp": 5, "tbsp": 15,
+    "cup": 250, "cups": 250,
+    "fl oz": 29.57, "fluid oz": 29.57,
+    "pint": 473, "pints": 473,
+    "quart": 946, "quarts": 946,
+    "gallon": 3785, "gallons": 3785,
+}
+_UNIT_TO_G = {
+    "g": 1, "kg": 1000,
+    "oz": 28.35, "ounce": 28.35, "ounces": 28.35,
+    "lb": 453.6, "lbs": 453.6, "pound": 453.6, "pounds": 453.6,
+    "stick": 113, "sticks": 113,
+}
+
+def _normalise_unit(unit: str | None) -> tuple[str, float]:
+    """Return (canonical_unit, multiplier_to_base). Base = ml for volume, g for weight."""
+    if not unit:
+        return ("", 1.0)
+    u = unit.strip().lower()
+    if u in _UNIT_TO_ML:
+        return ("ml", _UNIT_TO_ML[u])
+    if u in _UNIT_TO_G:
+        return ("g", _UNIT_TO_G[u])
+    return (unit, 1.0)
+
+def _format_qty(total: float, base_unit: str) -> tuple[float, str]:
+    """Convert base (ml or g) totals to nice display units."""
+    if base_unit == "ml":
+        if total >= 1000:
+            return (round(total / 1000, 2), "L")
+        return (round(total), "ml")
+    if base_unit == "g":
+        if total >= 1000:
+            return (round(total / 1000, 2), "kg")
+        return (round(total), "g")
+    return (round(total, 1), base_unit)
+
+
 @router.get("/{plan_id}/grocery-list")
 async def grocery_list(
     plan_id: int,
@@ -422,31 +525,69 @@ async def grocery_list(
     if not plan:
         raise HTTPException(404, "Plan not found")
 
-    # key = cleaned food name → accumulate
+    # key = cleaned food name → accumulate quantities by base unit
     totals: dict[str, dict] = {}
     for item in plan.items:
         if item.is_leftover:
             continue
+        scale = item.servings or 1
         for ri in item.recipe.ingredients:
+            # Extract name from the raw ingredient string
             raw = ri.ingredient.name
+            # Try to get quantity from the structured fields first, else parse from name
+            qty = ri.quantity
+            unit_raw = ri.unit
+            # If no structured qty, try parsing from the raw name
+            if qty is None:
+                m = _US_QTY_RE.match(raw.strip())
+                if m:
+                    qty_str = m.group(1).strip()
+                    unit_raw = m.group(2).strip()
+                    try:
+                        parts = qty_str.split()
+                        qty = 0.0
+                        for p in parts:
+                            if "/" in p:
+                                n, d = p.split("/")
+                                qty += float(n) / float(d)
+                            else:
+                                qty += float(p)
+                    except (ValueError, ZeroDivisionError):
+                        qty = None
+
             cleaned = _clean_ingredient_name(raw)
             if _should_skip_grocery(cleaned):
                 continue
             key = cleaned.lower()
+
+            base_unit, mult = _normalise_unit(unit_raw)
+            base_qty = (qty or 0) * mult * scale
+
             if key not in totals:
                 totals[key] = {
                     "ingredient": cleaned,
                     "category": _categorise(cleaned),
-                    "raw_names": set(),
+                    "base_unit": base_unit,
+                    "base_total": 0.0,
+                    "count": 0,
                 }
-            totals[key]["raw_names"].add(raw)
+            totals[key]["base_total"] += base_qty
+            totals[key]["count"] += 1
+            # If units are mixed (e.g. g and ml), fallback to count only
+            if base_unit and totals[key]["base_unit"] and base_unit != totals[key]["base_unit"]:
+                totals[key]["base_unit"] = ""
 
-    # Convert sets to lists for JSON serialisation, sort by category then name
     result = []
     for v in totals.values():
+        qty_display, unit_display = None, None
+        if v["base_unit"] and v["base_total"] > 0:
+            qty_display, unit_display = _format_qty(v["base_total"], v["base_unit"])
+
         result.append({
             "ingredient": v["ingredient"],
             "category": v["category"],
+            "quantity": qty_display,
+            "unit": unit_display,
         })
 
     result.sort(key=lambda x: (x["category"], x["ingredient"].lower()))

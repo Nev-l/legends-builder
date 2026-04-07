@@ -114,14 +114,16 @@ export default function PlannerPage() {
 
   const { data: plans, mutate: mutatePlans, isLoading } = useSWR<MealPlan[]>(
     isLoggedIn ? "/meal-planner" : null,
-    (url: string) => api.get<MealPlan[]>(url)
+    (url: string) => api.get<MealPlan[]>(url),
+    { refreshInterval: 5000 }
   );
 
   const plan = plans?.find((p) => p.week_start?.slice(0, 10) === ws);
 
-  const { data: grocery, mutate: mutateGrocery } = useSWR<{ ingredient: string; category: string }[]>(
+  const { data: grocery, mutate: mutateGrocery } = useSWR<{ ingredient: string; category: string; quantity: number | null; unit: string | null }[]>(
     plan ? `/meal-planner/${plan.id}/grocery-list` : null,
-    (url: string) => api.get<{ ingredient: string; category: string }[]>(url)
+    (url: string) => api.get<{ ingredient: string; category: string; quantity: number | null; unit: string | null }[]>(url),
+    { refreshInterval: 8000 }
   );
   const [addedToPantry, setAddedToPantry] = useState<Set<string>>(new Set());
 
@@ -469,6 +471,11 @@ export default function PlannerPage() {
                           <li key={g.ingredient} className="flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-900 px-3 py-2 text-sm">
                             <span className="h-2 w-2 shrink-0 rounded-full bg-brand-500" />
                             <span className="flex-1">{g.ingredient}</span>
+                            {g.quantity != null && (
+                              <span className="shrink-0 text-xs text-gray-500">
+                                {g.quantity}{g.unit ? ` ${g.unit}` : ""}
+                              </span>
+                            )}
                             <button
                               onClick={() => !added && addToPantry(g.ingredient)}
                               title={added ? "Added to pantry" : "Add to pantry"}

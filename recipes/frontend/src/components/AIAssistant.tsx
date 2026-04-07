@@ -194,6 +194,70 @@ export default function AIAssistant() {
     localStorage.setItem(PROFILE_KEY, JSON.stringify(p));
   }
 
+  // Detect meal change requests like "Saturday I want steak for dinner"
+  function detectMealChange(text: string): { day: number; slot: string; keyword: string } | null {
+    const days: Record<string, number> = {
+      monday: 0, mon: 0, tuesday: 1, tue: 1, wednesday: 2, wed: 2,
+      thursday: 3, thu: 3, friday: 4, fri: 4, saturday: 5, sat: 5, sunday: 6, sun: 6,
+      today: new Date().getDay() === 0 ? 6 : new Date().getDay() - 1,
+      tomorrow: new Date().getDay() === 0 ? 0 : new Date().getDay() === 6 ? 0 : new Date().getDay(),
+    };
+    const slots: Record<string, string> = {
+      breakfast: "breakfast", lunch: "lunch", dinner: "dinner",
+      snack: "snack", supper: "dinner", tea: "dinner",
+    };
+    const t = text.toLowerCase();
+    let foundDay: number | null = null;
+    let foundSlot = "dinner";
+    let foundKeyword = "";
+
+    for (const [d, n] of Object.entries(days)) {
+      if (t.includes(d)) { foundDay = n; break; }
+    }
+    for (const [s, v] of Object.entries(slots)) {
+      if (t.includes(s)) { foundSlot = v; break; }
+    }
+
+    // Look for change/want/swap/replace patterns
+    const changePattern = /(?:change|swap|replace|want|give me|make|use|put|set|switch)\s+(?:to\s+|with\s+)?(.+?)(?:\s+(?:for|on|as|at)\s+|$)/i;
+    const wantPattern = /(?:i want|i'd like|can you(?:\s+make)?|give me|how about)\s+(.+?)(?:\s+(?:for|on|as)\s+|$)/i;
+    const daySlotPattern = new RegExp(`(?:${Object.keys(days).join("|")})\\s+(?:${Object.keys(slots).join("|")})\\s+(?:to be|should be|=)?\\s*(.+)`, "i");
+
+    let m = daySlotPattern.exec(t) || changePattern.exec(t) || wantPattern.exec(t);
+    if (m) foundKeyword = m[1].trim().replace(/[.,!?]$/, "");
+
+    if (foundDay !== null && foundKeyword) {
+      return { day: foundDay, slot: foundSlot, keyword: foundKeyword };
+    }
+    return null;
+  }
+
+  async function smartUpdatePlan(day: number, slot: string, keyword: string) {
+    if (!isLoggedIn) return;
+    // Get current plan id
+    try {
+      const plans: any = await api.get("/meal-planner");
+      const today = new Date();
+      const dow = today.getDay();
+      const monday = new Date(today);
+      monday.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
+      const ws = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, "0")}-${String(monday.getDate()).padStart(2, "0")}`;
+      const plan = Array.isArray(plans) ? plans.find((p: any) => p.week_start?.slice(0, 10) === ws) : null;
+      if (!plan) return null;
+
+      const res: any = await api.post(`/meal-planner/${plan.id}/smart-update`, {
+        day_of_week: day,
+        slot,
+        keyword,
+      });
+      return res;
+    } catch {
+      return null;
+    }
+  }
+
+  const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
   async function send(text: string) {
     if (!text.trim() || loading) return;
     setInput("");
@@ -201,6 +265,24 @@ export default function AIAssistant() {
     const next = [...messages, userMsg];
     setMessages(next);
     setLoading(true);
+
+    // Check for meal change request before sending to AI
+    const mealChange = detectMealChange(text);
+    if (mealChange && isLoggedIn) {
+      try {
+        const result = await smartUpdatePlan(mealChange.day, mealChange.slot, mealChange.keyword);
+        if (result?.ok) {
+          const dayName = DAY_NAMES[mealChange.day];
+          setMessages(prev => [...prev, {
+            role: "assistant",
+            content: `Done, Amigo! I've updated ${dayName} ${mealChange.slot} to **${result.recipe.title}**.\n\nYour planner is already updated — no refresh needed! 🍳`,
+          }]);
+          setLoading(false);
+          return;
+        }
+      } catch {}
+      // If smart update failed, fall through to normal AI chat
+    }
 
     try {
       const history = next.slice(-20).map(m => ({ role: m.role, content: m.content }));

@@ -293,6 +293,48 @@ async def clear_plan_items(
     await db.commit()
 
 
+@router.delete("/{plan_id}/day/{day_of_week}", status_code=204)
+async def clear_plan_day(
+    plan_id: int,
+    day_of_week: int,
+    user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove all items for a specific day (0=Mon … 6=Sun)."""
+    plan = await db.scalar(
+        select(MealPlan).where(MealPlan.id == plan_id, MealPlan.user_id == user_id)
+        .options(selectinload(MealPlan.items))
+    )
+    if not plan:
+        raise HTTPException(404, "Plan not found")
+    for item in plan.items:
+        if item.day_of_week == day_of_week:
+            await db.delete(item)
+    await db.commit()
+
+
+@router.delete("/{plan_id}/slot/{slot}", status_code=204)
+async def clear_plan_slot(
+    plan_id: int,
+    slot: str,
+    user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove all items for a specific slot across every day (e.g. all breakfasts)."""
+    if slot not in ("breakfast", "lunch", "dinner", "snack"):
+        raise HTTPException(400, "Invalid slot")
+    plan = await db.scalar(
+        select(MealPlan).where(MealPlan.id == plan_id, MealPlan.user_id == user_id)
+        .options(selectinload(MealPlan.items))
+    )
+    if not plan:
+        raise HTTPException(404, "Plan not found")
+    for item in plan.items:
+        if item.slot == slot:
+            await db.delete(item)
+    await db.commit()
+
+
 import re as _re
 
 # ── Grocery list helpers ──────────────────────────────────────────────────────

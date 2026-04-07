@@ -21,6 +21,7 @@ interface Profile {
 
 const STORAGE_KEY = "raul_chat_history";
 const PROFILE_KEY = "raul_user_profile";
+const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 const ACTIVITY_LABELS: Record<string, string> = {
   sedentary: "Sedentary (desk job, little exercise)",
@@ -195,6 +196,79 @@ export default function AIAssistant() {
     localStorage.setItem(PROFILE_KEY, JSON.stringify(p));
   }
 
+  // Detect clear requests: "clear Monday", "wipe the whole plan", "clear breakfast row", "clear Saturday dinner"
+  function detectClearRequest(text: string): { type: "all" | "day" | "slot" | "cell"; day?: number; slot?: string } | null {
+    const t = text.toLowerCase();
+    const hasClear = /\b(clear|wipe|delete|remove|empty|reset)\b/.test(t);
+    if (!hasClear) return null;
+
+    const days: Record<string, number> = {
+      monday: 0, mon: 0, tuesday: 1, tue: 1, wednesday: 2, wed: 2,
+      thursday: 3, thu: 3, friday: 4, fri: 4, saturday: 5, sat: 5, sunday: 6, sun: 6,
+    };
+    const slots: Record<string, string> = {
+      breakfast: "breakfast", lunch: "lunch", dinner: "dinner", snack: "snack", snacks: "snack",
+    };
+
+    const wholePatterns = /\b(whole|entire|full|all|everything|week|plan)\b/;
+    let foundDay: number | null = null;
+    let foundSlot: string | null = null;
+
+    for (const [d, n] of Object.entries(days)) {
+      if (t.includes(d)) { foundDay = n; break; }
+    }
+    for (const [s, v] of Object.entries(slots)) {
+      if (t.includes(s)) { foundSlot = v; break; }
+    }
+
+    if (wholePatterns.test(t) && !foundDay && !foundSlot) return { type: "all" };
+    if (foundDay !== null && foundSlot) return { type: "cell", day: foundDay, slot: foundSlot };
+    if (foundDay !== null) return { type: "day", day: foundDay };
+    if (foundSlot) return { type: "slot", slot: foundSlot };
+    return null;
+  }
+
+  async function executeClear(clearReq: { type: "all" | "day" | "slot" | "cell"; day?: number; slot?: string }): Promise<string | null> {
+    try {
+      const plans: any = await api.get("/meal-planner");
+      const today = new Date();
+      const dow = today.getDay();
+      const monday = new Date(today);
+      monday.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
+      const ws = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, "0")}-${String(monday.getDate()).padStart(2, "0")}`;
+      const plan = Array.isArray(plans) ? plans.find((p: any) => p.week_start?.slice(0, 10) === ws) : null;
+      if (!plan) return "No plan found for this week, Amigo!";
+
+      if (clearReq.type === "all") {
+        await api.delete(`/meal-planner/${plan.id}/items`);
+        return "Wiped the whole week clean, Amigo! Blank canvas — let's rebuild it!";
+      }
+      if (clearReq.type === "day" && clearReq.day !== undefined) {
+        await api.delete(`/meal-planner/${plan.id}/day/${clearReq.day}`);
+        return `Cleared all meals for ${DAY_NAMES[clearReq.day]}. What do you want there instead?`;
+      }
+      if (clearReq.type === "slot" && clearReq.slot) {
+        await api.delete(`/meal-planner/${plan.id}/slot/${clearReq.slot}`);
+        const slotLabel = clearReq.slot.charAt(0).toUpperCase() + clearReq.slot.slice(1);
+        return `Cleared the entire ${slotLabel} row for the week. Want me to fill it back up?`;
+      }
+      if (clearReq.type === "cell" && clearReq.day !== undefined && clearReq.slot) {
+        // Find and remove just that one item
+        const planFull: any = plans.find((p: any) => p.week_start?.slice(0, 10) === ws);
+        const item = planFull?.items?.find((i: any) => i.day_of_week === clearReq.day && i.slot === clearReq.slot);
+        if (item) {
+          await api.delete(`/meal-planner/${plan.id}/items/${item.id}`);
+          const slotLabel = clearReq.slot.charAt(0).toUpperCase() + clearReq.slot.slice(1);
+          return `Removed ${slotLabel} from ${DAY_NAMES[clearReq.day!]}. Want something specific there?`;
+        }
+        return `Nothing in that slot to clear, Amigo!`;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   // Detect meal change requests like "Saturday I want steak for dinner"
   function detectMealChange(text: string): { day: number; slot: string; keyword: string } | null {
     const days: Record<string, number> = {
@@ -294,8 +368,6 @@ export default function AIAssistant() {
     }
   }
 
-  const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-
   async function send(text: string) {
     if (!text.trim() || loading) return;
     setInput("");
@@ -303,6 +375,19 @@ export default function AIAssistant() {
     const next = [...messages, userMsg];
     setMessages(next);
     setLoading(true);
+
+    // Check for clear/wipe requests first
+    const clearReq = detectClearRequest(text);
+    if (clearReq && isLoggedIn) {
+      try {
+        const result = await executeClear(clearReq);
+        if (result) {
+          setMessages(prev => [...prev, { role: "assistant", content: result }]);
+          setLoading(false);
+          return;
+        }
+      } catch {}
+    }
 
     // Check for meal change request before sending to AI
     const mealChange = detectMealChange(text);

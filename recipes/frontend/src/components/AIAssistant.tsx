@@ -246,60 +246,52 @@ export default function AIAssistant() {
     if (!isLoggedIn) { alert("Sign in to save your meal plan!"); return; }
     setApplyingPlan(true);
 
-    // Get the last assistant message with a meal plan
-    const planMessages = messages.filter(m => m.role === "assistant" && m.content.length > 200);
-    if (planMessages.length === 0) {
-      alert("No plan found yet — ask Raul to build one first!");
-      setApplyingPlan(false);
-      return;
-    }
-    const planText = planMessages[planMessages.length - 1].content;
-
     try {
-      // Ask Raul to convert the plan to structured JSON
-      const res: any = await api.post("/ai/chat", {
-        message: `Convert the meal plan above into this exact JSON format (use real recipe slugs from recipehub where possible, otherwise use descriptive slug-style names):
-{
-  "week_start": "YYYY-MM-DD",
-  "days": [
-    {
-      "day": 0,
-      "breakfast": "recipe-slug-or-name",
-      "lunch": "recipe-slug-or-name",
-      "dinner": "recipe-slug-or-name",
-      "snack": "recipe-slug-or-name"
-    }
-  ]
-}
-day 0=Monday, 1=Tuesday, ... 6=Sunday. Reply with ONLY the JSON, no other text.`,
-        history: messages.slice(-10).map(m => ({ role: m.role, content: m.content })),
-      });
+      const stats = calcTDEE(profile);
+      const dailyCal = stats?.target || 2000;
 
-      const jsonStr = res.response.replace(/```json\n?|\n?```/g, "").trim();
-      const plan = JSON.parse(jsonStr);
+      // Calorie targets per slot (rough split: B25% L30% D35% S10%)
+      const slotCals = {
+        breakfast: Math.round(dailyCal * 0.25),
+        lunch:     Math.round(dailyCal * 0.30),
+        dinner:    Math.round(dailyCal * 0.35),
+        snack:     Math.round(dailyCal * 0.10),
+      };
+
+      // Fetch real recipes from our DB for each slot (get enough variety for 7 days)
+      const slots = ["breakfast", "lunch", "dinner", "snack"] as const;
+      const recipePool: Record<string, { slug: string; title: string }[]> = {};
+
+      await Promise.all(slots.map(async slot => {
+        const cal = slotCals[slot];
+        const res = await api.get<{ slug: string; title: string }[]>(
+          `/meal-planner/recommend?calorie_target=${cal}&slot=${slot}&limit=14`
+        );
+        recipePool[slot] = Array.isArray(res) ? res : [];
+      }));
 
       // Get Monday of current week (local time)
       const today = new Date();
-      const day = today.getDay();
+      const dow = today.getDay();
       const monday = new Date(today);
-      monday.setDate(today.getDate() - (day === 0 ? 6 : day - 1));
+      monday.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
       const weekStart = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, "0")}-${String(monday.getDate()).padStart(2, "0")}`;
 
-      // Create the plan
+      // Create or reuse the plan
       const created: any = await api.post("/meal-planner", { week_start: weekStart, items: [] });
       const planId = created.id;
 
-      // Add each meal as an item
+      // Fill 7 days, rotating through the pool
       let added = 0;
-      for (const day of plan.days) {
-        for (const slot of ["breakfast", "lunch", "dinner", "snack"] as const) {
-          const slugRaw = day[slot];
-          if (!slugRaw) continue;
-          const slug = slugRaw.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      for (let dayNum = 0; dayNum < 7; dayNum++) {
+        for (const slot of slots) {
+          const pool = recipePool[slot];
+          if (!pool.length) continue;
+          const recipe = pool[dayNum % pool.length];
           try {
             await api.post(`/meal-planner/${planId}/items`, {
-              recipe_slug: slug,
-              day_of_week: day.day,
+              recipe_slug: recipe.slug,
+              day_of_week: dayNum,
               slot,
               servings: 1,
             });
@@ -310,12 +302,12 @@ day 0=Monday, 1=Tuesday, ... 6=Sunday. Reply with ONLY the JSON, no other text.`
 
       setMessages(prev => [...prev, {
         role: "assistant",
-        content: `✅ Done, Amigo! I've added ${added} meals to your planner for this week. Head to the Meal Planner to see it! Some meals may need adjusting if the exact recipe wasn't found — just swap them out in the planner. 🍳`,
+        content: `✅ Done, Amigo! I've filled your planner with ${added} real meals from the RecipeHub database targeting ~${dailyCal} kcal/day.\n\nHead to the Meal Planner to see it — swap anything you don't fancy! 🍳`,
       }]);
     } catch (e: any) {
       setMessages(prev => [...prev, {
         role: "assistant",
-        content: `Hmm, I couldn't auto-fill the planner right now. Try copying the plan and adding meals manually, Amigo! (${e.message})`,
+        content: `Couldn't fill the planner right now, Amigo. (${e.message})`,
       }]);
     } finally {
       setApplyingPlan(false);

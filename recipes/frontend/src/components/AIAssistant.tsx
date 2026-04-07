@@ -761,10 +761,9 @@ export default function AIAssistant() {
           content: `Building your planner from our chat... this may take a moment while I create any new recipes! 👨‍🍳`,
         }]);
 
-        const allKeywords = new Set<string>();
-        for (const slot of slots) {
-          for (const kw of parsedPlan![slot]) allKeywords.add(kw);
-        }
+        const allKeywords = Array.from(new Set(
+          slots.flatMap(slot => parsedPlan![slot])
+        ));
 
         // Resolve each unique keyword once
         for (const keyword of allKeywords) {

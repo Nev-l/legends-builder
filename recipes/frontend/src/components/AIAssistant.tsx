@@ -412,7 +412,7 @@ day 0=Monday, 1=Tuesday, ... 6=Sunday. Reply with ONLY the JSON, no other text.`
                   m.role === "user"
                     ? "bg-brand-500 text-white"
                     : "bg-gray-900 text-gray-200"
-                }`}>
+                } break-words overflow-wrap-anywhere`}>
                   {m.content}
                 </div>
               </div>

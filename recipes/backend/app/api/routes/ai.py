@@ -78,6 +78,46 @@ async def ai_chat(
     response = await ai_assistant.chat(body.message, body.history)
     return {"response": response}
 
+
+class RaulPrefs(BaseModel):
+    """User taste & preference profile stored by Raul."""
+    breakfast_styles: List[str] = []    # e.g. ["overnight oats", "eggs", "smoothie bowl"]
+    lunch_styles: List[str] = []        # e.g. ["salad", "wrap", "soup"]
+    dinner_styles: List[str] = []       # e.g. ["chicken rice", "steak", "pasta"]
+    snack_styles: List[str] = []        # e.g. ["protein shake", "fruit", "nuts"]
+    disliked_foods: List[str] = []      # e.g. ["mushrooms", "fish"]
+    cuisine_prefs: List[str] = []       # e.g. ["asian", "mediterranean", "mexican"]
+    consistent_meals: bool = False      # True = repeat same meals, False = variety
+    lazy_cook: bool = False             # True = minimal ingredients, dead-simple recipes
+    extra_notes: str = ""               # freeform notes Raul learned from conversation
+
+
+@router.post("/prefs")
+async def save_raul_prefs(
+    body: RaulPrefs,
+    user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save user taste preferences to the database so Raul remembers across sessions."""
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+    user.raul_prefs = body.model_dump()
+    await db.commit()
+    return {"ok": True}
+
+
+@router.get("/prefs")
+async def get_raul_prefs(
+    user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get stored Raul preferences for the current user."""
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+    return user.raul_prefs or {}
+
 @router.post("/generate-plan")
 async def ai_generate_plan(
     weeks: int = 1,
@@ -110,8 +150,9 @@ class RecipeGenRequest(BaseModel):
     title: str
     description: Optional[str] = None
     diet_tags: Optional[List[str]] = []
-    servings: int = 4
+    servings: int = 2
     max_time_minutes: Optional[int] = None  # combined prep+cook
+    lazy_mode: bool = False                  # minimal ingredients, dead-simple steps
     notes: Optional[str] = None             # extra instructions e.g. "high protein", "keto"
 
 
@@ -131,44 +172,54 @@ async def ai_create_recipe(
 
     # Build a detailed prompt for structured output
     constraints = []
+    if body.lazy_mode:
+        constraints.append("LAZY MODE: Keep it DEAD SIMPLE. Max 5 ingredients, max 3 steps, under 15 minutes total. Think: boiled eggs, tinned tuna & rice, steak & salad, instant oats. No fancy techniques.")
     if body.max_time_minutes:
         constraints.append(f"Total prep + cook time must be under {body.max_time_minutes} minutes.")
     if body.diet_tags:
-        constraints.append(f"Diet tags: {', '.join(body.diet_tags)}.")
+        constraints.append(f"Diet requirements: {', '.join(body.diet_tags)}.")
     if body.notes:
         constraints.append(body.notes)
 
-    constraint_block = "\n".join(constraints) if constraints else "No special constraints."
+    constraint_block = "\n".join(constraints) if constraints else "Make it detailed, delicious, and impressive."
+    ingredient_count = "3-5" if body.lazy_mode else "5-12"
+    step_count = "2-3" if body.lazy_mode else "4-8"
 
-    prompt = f"""Create a complete, detailed recipe for: "{body.title}"
-{f'Description: {body.description}' if body.description else ''}
+    prompt = f"""You are Raul The Chef. Create a complete recipe for: "{body.title}"
+{f'Description hint: {body.description}' if body.description else ''}
 Servings: {body.servings}
 {constraint_block}
 
-Return ONLY valid JSON in this exact format (no markdown, no commentary before or after):
+Return ONLY valid JSON — no markdown fences, no text before or after the JSON:
 {{
-  "title": "recipe title",
-  "description": "2-3 sentence description",
-  "prep_minutes": 15,
-  "cook_minutes": 25,
+  "title": "exact recipe name",
+  "description": "2-3 sentences — appetising, specific, mention key flavours",
+  "prep_minutes": 10,
+  "cook_minutes": 20,
   "servings": {body.servings},
   "calories_per_serving": 450,
   "protein_g": 35,
   "carbs_g": 20,
   "fat_g": 18,
-  "diet_tags": [],
+  "diet_tags": ["high_protein"],
   "ingredients": [
-    {{"name": "chicken breast", "quantity": 500, "unit": "g", "note": "sliced"}},
-    {{"name": "olive oil", "quantity": 2, "unit": "tbsp", "note": null}}
+    {{"name": "chicken breast", "quantity": 400, "unit": "g", "note": "sliced thin"}},
+    {{"name": "olive oil", "quantity": 1, "unit": "tbsp", "note": null}},
+    {{"name": "garlic clove", "quantity": 2, "unit": null, "note": "minced"}}
   ],
   "steps": [
-    {{"body": "Preheat oven to 200°C.", "timer_mins": null}},
-    {{"body": "Season chicken with salt and pepper.", "timer_mins": null}},
-    {{"body": "Bake for 25 minutes until golden.", "timer_mins": 25}}
+    {{"body": "Heat oil in a pan over medium-high heat.", "timer_mins": null}},
+    {{"body": "Season chicken with salt and pepper, cook 4 minutes each side.", "timer_mins": 8}},
+    {{"body": "Add garlic, toss for 1 minute. Serve immediately.", "timer_mins": 1}}
   ]
 }}
 
-Use metric measurements (grams, ml, tbsp, tsp). Include at least 5 ingredients and 4 steps. Be specific and helpful."""
+Rules:
+- Use metric measurements (g, ml, tbsp, tsp, cups)
+- Include {ingredient_count} ingredients and {step_count} steps
+- Every step must be specific with temperatures, times, and techniques
+- Calories must be realistic for the ingredients listed
+- diet_tags only from: ["gluten_free","dairy_free","vegan","vegetarian","high_protein","low_carb","nut_free"]"""
 
     raw = await ai_assistant.chat(prompt)
 
@@ -185,18 +236,24 @@ Use metric measurements (grams, ml, tbsp, tsp). Include at least 5 ingredients a
     # Find or create the Raul account
     raul_user = await db.scalar(select(User).where(User.username == "raul"))
     if not raul_user:
-        # Create Raul's account if it doesn't exist
-        import hashlib, os
+        import hashlib, os as _os
         raul_user = User(
             email="raul@recipehub.ai",
             username="raul",
             display_name="Raul The Chef",
             role="verified_chef",
-            hashed_password=hashlib.sha256(os.urandom(32)).hexdigest(),
-            bio="I'm RAUL THE CHEF — your AI-powered personal chef and trainer! I create custom recipes tailored to your goals.",
+            hashed_password=hashlib.sha256(_os.urandom(32)).hexdigest(),
+            avatar_url="/recipes/images/raul_unleashed.png",
+            bio="I'm RAUL THE CHEF — your AI-powered personal chef and trainer! When a recipe doesn't exist in the vault, I create it from scratch — tailored to your goals, your tastes, and your schedule.",
         )
         db.add(raul_user)
         await db.flush()
+
+    # Generate a food image URL using Unsplash Source (free, no API key needed)
+    # Use the recipe title as the search query for a relevant food photo
+    import urllib.parse as _urlparse
+    title_query = _urlparse.quote(data.get("title", body.title).replace("-", " "))
+    image_url = f"https://source.unsplash.com/800x600/?food,{title_query}"
 
     # Build slug
     base_slug = _slugify(data.get("title", body.title))
@@ -218,6 +275,7 @@ Use metric measurements (grams, ml, tbsp, tsp). Include at least 5 ingredients a
         carbs_g=data.get("carbs_g"),
         fat_g=data.get("fat_g"),
         diet_tags=data.get("diet_tags") or body.diet_tags or [],
+        image_url=image_url,
         source="ugc",
         author_id=raul_user.id,
         is_published=True,

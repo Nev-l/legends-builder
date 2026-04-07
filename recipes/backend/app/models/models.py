@@ -73,7 +73,8 @@ class User(Base):
     biological_sex  = Column(String(20))                    # "male" | "female"
     activity_level  = Column(String(50))                    # "sedentary" | "light" | "moderate" | "active" | "very_active"
     bmi_history     = Column(JSONB, default=list)           # list of snapshots: [{"date": ISO, "weight": 85.0, "bmi": 24.5}]
-    
+    raul_prefs      = Column(JSONB, default=dict)           # Raul learned preferences: tastes, dislikes, patterns
+
     is_active       = Column(Boolean, default=True)
     role            = Column(String(20), default="user", nullable=False)
     created_at      = Column(DateTime(timezone=True), default=now_utc)

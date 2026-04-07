@@ -685,6 +685,7 @@ async def recommend_meals(
     slot: str = Query("dinner"),
     diet_tags: Optional[str] = Query(None),  # comma-separated
     max_time: Optional[int] = Query(None, ge=5, le=300),  # max prep+cook minutes
+    keyword: Optional[str] = Query(None),  # taste keyword bias (e.g. "overnight oats")
     db: AsyncSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
 ):
@@ -724,6 +725,13 @@ async def recommend_meals(
             if (r.prep_minutes or 0) + (r.cook_minutes or 0) <= max_time
             or ((r.prep_minutes is None) and (r.cook_minutes is None))  # include if no time data
         ]
+
+    # Keyword bias: float matching recipes to top of pool
+    if keyword:
+        kw_lower = keyword.lower()
+        keyword_matched   = [r for r in all_recipes if kw_lower in r.title.lower()]
+        keyword_unmatched = [r for r in all_recipes if kw_lower not in r.title.lower()]
+        all_recipes = keyword_matched + keyword_unmatched
 
     # For breakfast: STRICT — only return slot-matched recipes
     if slot == "breakfast":
